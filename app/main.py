@@ -1,4 +1,5 @@
 import json
+import re
 import subprocess
 import threading
 import time
@@ -15,6 +16,7 @@ from vectorstore import (
     add_document,
     append_session_messages,
     chunk_text,
+    count_documents,
     create_session,
     delete_document,
     delete_session,
@@ -37,6 +39,16 @@ SERVICES = {
 }
 EMBED_URL = "http://127.0.0.1:8002"
 RERANK_URL = "http://127.0.0.1:8003"
+
+MAX_UPLOAD_BYTES = 20 * 1024 * 1024
+MAX_DOCS = 100
+
+_NO_CONTEXT_RE = re.compile(
+    r"(no contexto|no tengo|no contiene|no lo s|no puedo|no se menciona|"
+    r"no se proporciona|sin informaci|i don't|cannot answer|no information|"
+    r"not in the|no encuentro)",
+    re.IGNORECASE,
+)
 
 app = FastAPI(title="MiniCPM Desktop")
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
@@ -266,20 +278,32 @@ def _extract_text(filename: str, data: bytes) -> str:
     raise HTTPException(400, f"formato no soportado: .{ext} (usa txt, md, json o pdf)")
 
 
+def _safe_filename(name: str) -> str:
+    base = Path(name.replace("\\", "/")).name.strip()
+    if not base or base in (".", ".."):
+        raise HTTPException(400, "nombre de fichero inválido")
+    return base[:255]
+
+
 @app.post("/api/documents")
 async def api_upload(file: UploadFile):
     if not _is_alive("embed"):
         raise HTTPException(503, "servicio embed no está corriendo")
+    if count_documents() >= MAX_DOCS:
+        raise HTTPException(413, f"límite de {MAX_DOCS} documentos alcanzado; borra alguno antes de subir")
     data = await file.read()
-    text = _extract_text(file.filename, data)
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise HTTPException(413, f"fichero demasiado grande: máximo {MAX_UPLOAD_BYTES // (1024 * 1024)} MB")
+    filename = _safe_filename(file.filename)
+    text = _extract_text(filename, data)
     chunks = chunk_text(text)
     if not chunks:
         raise HTTPException(400, "el documento no tiene contenido extraíble")
     embs = _embed_corpus(chunks)
     import numpy as np
 
-    doc_id = add_document(file.filename, chunks, np.array(embs, dtype=np.float32))
-    return {"id": doc_id, "filename": file.filename, "n_chunks": len(chunks)}
+    doc_id = add_document(filename, chunks, np.array(embs, dtype=np.float32))
+    return {"id": doc_id, "filename": filename, "n_chunks": len(chunks)}
 
 
 @app.get("/api/documents")
@@ -355,9 +379,21 @@ def api_rag(req: RagReq):
     data = r.json()
     content = data["choices"][0]["message"].get("content") or ""
     reasoning = data["choices"][0]["message"].get("reasoning_content") or ""
+    answer = content.strip() or reasoning.strip()
+    forced_8b = False
+    if req.model == "5-1b" and _NO_CONTEXT_RE.search(answer) and _is_alive("8b"):
+        body["model"] = "8b"
+        r = httpx.post(_svc_url("8b") + "/v1/chat/completions", json=body, timeout=600)
+        r.raise_for_status()
+        data = r.json()
+        content = data["choices"][0]["message"].get("content") or ""
+        reasoning = data["choices"][0]["message"].get("reasoning_content") or ""
+        answer = content.strip() or reasoning.strip()
+        forced_8b = True
     return {
-        "answer": content.strip() or reasoning.strip(),
+        "answer": answer,
         "reasoning": reasoning,
+        "forced_8b": forced_8b,
         "sources": [{"filename": s["filename"], "text": s["text"], "score": s.get("rerank_score", s["cosine"])} for s in results],
     }
 

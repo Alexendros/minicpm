@@ -271,6 +271,7 @@ $("#kb-search-form").addEventListener("submit", async (e) => {
         }),
       });
       rbox.innerHTML =
+        (res.forced_8b ? '<div class="muted">El 5-1b no respondió con el contexto; se usó el 8b automáticamente.</div>' : "") +
         `<div class="rag-answer"><div class="bubble">${esc(res.answer)}</div></div>` +
         (res.reasoning ? `<details class="reason"><summary>Razonamiento</summary><pre>${esc(res.reasoning)}</pre></details>` : "") +
         res.sources.map((s, i) =>

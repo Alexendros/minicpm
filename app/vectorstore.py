@@ -108,6 +108,13 @@ def list_documents():
     return {"documents": docs, "n_chunks": total}
 
 
+def count_documents():
+    conn = _conn()
+    n = conn.execute("SELECT COUNT(*) FROM documents").fetchone()[0]
+    conn.close()
+    return n
+
+
 def delete_document(doc_id: int):
     conn = _conn()
     conn.execute("DELETE FROM chunks WHERE doc_id = ?", (doc_id,))
