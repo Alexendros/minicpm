@@ -3,19 +3,27 @@ import email.header
 import imaplib
 import json
 import os
+import re
+import shutil
 import smtplib
 import socket
 import ssl
+import subprocess
 from email.message import EmailMessage
+from html.parser import HTMLParser
 
 IMAP_HOST = os.environ.get("PROTON_IMAP_HOST", "127.0.0.1")
 IMAP_PORT = int(os.environ.get("PROTON_IMAP_PORT", "1143"))
 SMTP_HOST = os.environ.get("PROTON_SMTP_HOST", "127.0.0.1")
 SMTP_PORT = int(os.environ.get("PROTON_SMTP_PORT", "1025"))
 CREDS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "mail_creds.json")
+SECRET_SERVICE = "minicpm"
+SECRET_LABEL = "MiniCPM Proton Bridge"
 
 
 def tls_ctx():
+    if IMAP_HOST not in ("127.0.0.1", "localhost", "::1") or SMTP_HOST not in ("127.0.0.1", "localhost", "::1"):
+        raise RuntimeError("Bridge remoto exige verificación TLS")
     ctx = ssl.create_default_context()
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_NONE
@@ -24,6 +32,32 @@ def tls_ctx():
 
 def _creds_from_env():
     return os.environ.get("PROTON_USER"), os.environ.get("PROTON_PASS")
+
+
+def _creds_from_keyring():
+    if not shutil.which("secret-tool"):
+        return None, None
+    r = subprocess.run(
+        ["secret-tool", "search", "service", SECRET_SERVICE],
+        capture_output=True, text=True,
+    )
+    if r.returncode != 0:
+        return None, None
+    user = None
+    for line in r.stdout.splitlines():
+        m = re.match(r"\s*attribute\.user = (.*)", line)
+        if m:
+            user = m.group(1)
+            break
+    if not user:
+        return None, None
+    r2 = subprocess.run(
+        ["secret-tool", "lookup", "service", SECRET_SERVICE, "user", user],
+        capture_output=True, text=True,
+    )
+    if r2.returncode == 0 and r2.stdout.strip():
+        return user, r2.stdout.rstrip("\n")
+    return None, None
 
 
 def _creds_from_file():
@@ -39,17 +73,29 @@ def get_creds():
     user, pw = _creds_from_env()
     if user and pw:
         return user, pw
+    user, pw = _creds_from_keyring()
+    if user and pw:
+        return user, pw
     return _creds_from_file()
 
 
 def save_creds(user, pw):
-    os.makedirs(os.path.dirname(CREDS_FILE), exist_ok=True)
-    with open(CREDS_FILE, "w", encoding="utf-8") as f:
-        json.dump({"user": user, "pass": pw}, f)
-    os.chmod(CREDS_FILE, 0o600)
+    if not shutil.which("secret-tool"):
+        raise RuntimeError(
+            "secret-tool no está disponible: instala libsecret-tools para guardar credenciales sin escribirlas en disco"
+        )
+    subprocess.run(
+        ["secret-tool", "store", "--label", SECRET_LABEL, "service", SECRET_SERVICE, "user", user],
+        input=pw + "\n", text=True, capture_output=True, check=True,
+    )
 
 
 def clear_creds():
+    if shutil.which("secret-tool"):
+        subprocess.run(
+            ["secret-tool", "clear", "--all", "service", SECRET_SERVICE],
+            capture_output=True, text=True,
+        )
     try:
         os.remove(CREDS_FILE)
     except OSError:
@@ -94,7 +140,7 @@ def decode_header_value(v):
 def _summaries(imap, uids, limit):
     out = []
     for uid in uids[-limit:][::-1]:
-        typ, data = imap.fetch(uid, "(BODY.PEEK[HEADER.FIELDS (FROM SUBJECT DATE MESSAGE-ID)])")
+        typ, data = imap.uid("FETCH", str(int(uid)).encode(), "(BODY.PEEK[HEADER.FIELDS (FROM SUBJECT DATE MESSAGE-ID)])")
         if not data or not isinstance(data[0], tuple):
             continue
         msg = email.message_from_bytes(data[0][1])
@@ -115,7 +161,7 @@ def _select_inbox(imap, readonly=True):
 def unread(limit=50):
     with _connect() as imap:
         _select_inbox(imap)
-        typ, data = imap.search(None, "UNSEEN")
+        typ, data = imap.uid("SEARCH", None, "UNSEEN")
         uids = data[0].split() if data and data[0] else []
         return {"count": len(uids), "messages": _summaries(imap, uids, limit)}
 
@@ -142,9 +188,9 @@ def search(from_=None, subject=None, text=None, since=None, unread_only=False, l
                 criteria += ["SINCE", since]
             criteria = criteria or ["ALL"]
             criteria = [c.encode("utf-8") for c in criteria]
-            typ, data = imap.search("UTF-8", *criteria)
+            typ, data = imap.uid("SEARCH", "UTF-8", *criteria)
             uids = data[0].split() if data and data[0] else []
-            msgs = _summaries(imap, uids, 500)
+            msgs = _summaries(imap, uids, 50)
             if from_:
                 needle = from_.lower()
                 msgs = [m for m in msgs if needle in (m["from"] or "").lower()]
@@ -174,9 +220,41 @@ def search(from_=None, subject=None, text=None, since=None, unread_only=False, l
         if not criteria:
             criteria = ["ALL"]
         criteria = [c.encode("utf-8") if isinstance(c, str) else c for c in criteria]
-        typ, data = imap.search("UTF-8", *criteria)
+        typ, data = imap.uid("SEARCH", "UTF-8", *criteria)
         uids = data[0].split() if data and data[0] else []
         return {"count": len(uids), "messages": _summaries(imap, uids, limit)}
+
+
+class _TextExtractor(HTMLParser):
+    BLOCK_TAGS = {"p", "div", "br", "li", "tr", "h1", "h2", "h3", "h4", "blockquote"}
+
+    def __init__(self):
+        super().__init__()
+        self.parts = []
+        self.skip = 0
+
+    def handle_starttag(self, tag, attrs):
+        if tag in ("script", "style"):
+            self.skip += 1
+        if tag in self.BLOCK_TAGS:
+            self.parts.append("\n")
+
+    def handle_endtag(self, tag):
+        if tag in ("script", "style") and self.skip:
+            self.skip -= 1
+
+    def handle_data(self, data):
+        if not self.skip:
+            self.parts.append(data)
+
+
+def html_to_text(html):
+    p = _TextExtractor()
+    try:
+        p.feed(html)
+    except Exception:
+        return ""
+    return re.sub(r"\n{3,}", "\n\n", "".join(p.parts)).strip()
 
 
 def extract_body(msg):
@@ -186,15 +264,20 @@ def extract_body(msg):
                 return part.get_payload(decode=True).decode(part.get_content_charset() or "utf-8", "replace")
         for part in msg.walk():
             if part.get_content_type() == "text/html":
-                return part.get_payload(decode=True).decode(part.get_content_charset() or "utf-8", "replace")
+                return html_to_text(part.get_payload(decode=True).decode(part.get_content_charset() or "utf-8", "replace"))
     payload = msg.get_payload(decode=True)
-    return payload.decode(msg.get_content_charset() or "utf-8", "replace") if payload else ""
+    if not payload:
+        return ""
+    text = payload.decode(msg.get_content_charset() or "utf-8", "replace")
+    if msg.get_content_type() == "text/html":
+        return html_to_text(text)
+    return text
 
 
 def fetch(uid):
     with _connect() as imap:
         _select_inbox(imap)
-        typ, data = imap.fetch(str(uid).encode(), "(RFC822)")
+        typ, data = imap.uid("FETCH", str(uid).encode(), "(RFC822)")
         if not data or not isinstance(data[0], tuple):
             raise KeyError(f"UID {uid} no encontrado")
         msg = email.message_from_bytes(data[0][1])
@@ -213,7 +296,7 @@ def mark(uid, read=True):
     with _connect() as imap:
         _select_inbox(imap, readonly=False)
         flag = "+FLAGS" if read else "-FLAGS"
-        imap.store(str(uid).encode(), flag, "(\\Seen)")
+        imap.uid("STORE", str(uid).encode(), flag, r"(\Seen)")
         return {"uid": int(uid), "read": read}
 
 

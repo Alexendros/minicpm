@@ -21,10 +21,6 @@ function esc(s) {
   return d.innerHTML;
 }
 
-function escAttr(s) {
-  return esc(s).replace(/"/g, "&quot;");
-}
-
 async function api(url, opts = {}) {
   const r = await fetch(url, opts);
   if (!r.ok) {
@@ -56,7 +52,7 @@ function pollGpu() {
       if (!g) { $("#gpu-info").textContent = "GPU no disponible"; return; }
       const pct = Math.round((g.used_mib / g.total_mib) * 100);
       $("#gpu-info").innerHTML =
-        `RTX 5060 — <b>${g.used_mib} / ${g.total_mib} MiB</b> (${pct}%) · GPU ${g.util_pct}%`;
+        `${esc(g.name || "GPU")} — <b>${g.used_mib} / ${g.total_mib} MiB</b> (${pct}%) · GPU ${g.util_pct}%`;
     })
     .catch(() => {});
 }
@@ -75,13 +71,6 @@ function addMsg(role, text) {
   chatLog.appendChild(div);
   chatLog.scrollTop = chatLog.scrollHeight;
   return div;
-}
-
-function setStreaming(div, text, reasonEl) {
-  const bubble = div.querySelector(".bubble");
-  bubble.textContent = text;
-  if (reasonEl) reasonEl.querySelector("pre").textContent = reason;
-  chatLog.scrollTop = chatLog.scrollHeight;
 }
 
 function parseSseChunk(buf) {
@@ -152,6 +141,20 @@ $("#chat-form").addEventListener("submit", async (e) => {
         chatLog.scrollTop = chatLog.scrollHeight;
       }
     }
+    if (buf.trim()) {
+      const ch = parseSseChunk(buf);
+      content += ch.content;
+      reason += ch.reason;
+      if (reason && !reasonEl && model === "8b") {
+        reasonEl = document.createElement("details");
+        reasonEl.className = "reason";
+        reasonEl.innerHTML = "<summary>Razonamiento</summary><pre></pre>";
+        div.querySelector(".bubble").after(reasonEl);
+      }
+      if (reasonEl) reasonEl.querySelector("pre").textContent = reason;
+      div.querySelector(".bubble").textContent = content || "…";
+      chatLog.scrollTop = chatLog.scrollHeight;
+    }
     if (!content && !reason) div.querySelector(".bubble").textContent = "(sin respuesta)";
   } catch (err) {
     div.querySelector(".bubble").textContent = "Error: " + err.message;
@@ -174,7 +177,7 @@ async function refreshSessions() {
 }
 
 $("#chat-session").addEventListener("change", async (e) => {
-  currentSession = e.target.value || null;
+  currentSession = e.target.value ? Number(e.target.value) : null;
   $("#chat-del-session").disabled = !currentSession;
   chatLog.innerHTML = "";
   if (!currentSession) return;
@@ -205,12 +208,16 @@ $("#chat-del-session").addEventListener("click", async () => {
 
 async function refreshDocs() {
   try {
-    const docs = await api("/api/documents");
-    $("#kb-list").innerHTML = docs.length
-      ? docs.map((d) =>
-          `<div class="doc-row"><span>${esc(d.filename)}</span><span class="muted">${d.n_chunks} chunks · ${d.created_at}</span><button data-del="${d.id}" class="ghost">Borrar</button></div>`
+    const d = await api("/api/documents");
+    const docs = d.documents;
+    const warn = d.n_chunks > 3000
+      ? `<div class="muted">Base con ${d.n_chunks} chunks: la búsqueda puede ser lenta</div>`
+      : "";
+    $("#kb-list").innerHTML = warn + (docs.length
+      ? docs.map((dd) =>
+          `<div class="doc-row"><span>${esc(dd.filename)}</span><span class="muted">${dd.n_chunks} chunks · ${dd.created_at}</span><button data-del="${dd.id}" class="ghost">Borrar</button></div>`
         ).join("")
-      : '<div class="muted">Sin documentos</div>';
+      : '<div class="muted">Sin documentos</div>');
     $("#kb-list").querySelectorAll("[data-del]").forEach((b) =>
       b.addEventListener("click", async () => {
         await api("/api/documents/" + b.dataset.del, { method: "DELETE" });
@@ -237,7 +244,8 @@ $("#kb-file").addEventListener("change", async (e) => {
       msg.textContent = `Error en ${f.name}: ${err.message}`;
     }
   }
-  refreshDocs();
+refreshDocs();
+refreshSessions();
 });
 
 $("#kb-search-form").addEventListener("submit", async (e) => {
@@ -420,14 +428,11 @@ async function openMail(uid) {
   mailDetail.innerHTML = '<div class="muted">Cargando…</div>';
   try {
     const m = await api("/api/mail/fetch?uid=" + uid);
-    const isHtml = /^\s*</.test(m.body);
     mailDetail.innerHTML =
       `<div class="mail-head"><b>${esc(m.subject || "(sin asunto)")}</b></div>
        <div class="muted">De: ${esc(m.from)} · Para: ${esc(m.to)} · ${esc(m.date)}</div>
        <div class="muted">Msg-ID: ${esc(m.message_id)}</div>
-       ${isHtml
-         ? `<iframe class="mail-html" sandbox="" srcdoc="${escAttr(m.body)}"></iframe>`
-         : `<pre class="mail-body">${esc(m.body)}</pre>`}
+       <pre class="mail-body">${esc(m.body)}</pre>
        <button id="mail-reply">Responder</button>
        <button data-mark="${m.uid}" data-read="true">Marcar leído</button>
        <button data-mark="${m.uid}" data-read="false" class="ghost">Marcar no leído</button>`;

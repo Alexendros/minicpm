@@ -9,11 +9,15 @@ import numpy as np
 DATA_DIR = Path(__file__).parent / "data"
 DB_PATH = DATA_DIR / "kb.db"
 CHUNK_CHARS = 1200
+OVERLAP_CHARS = 180
 
 
 def _conn():
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=30)
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA foreign_keys=ON")
+    conn.execute("PRAGMA busy_timeout=5000")
     conn.execute(
         "CREATE TABLE IF NOT EXISTS documents ("
         "id INTEGER PRIMARY KEY AUTOINCREMENT,"
@@ -29,6 +33,7 @@ def _conn():
         "text TEXT NOT NULL,"
         "emb BLOB NOT NULL)"
     )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_chunks_doc ON chunks(doc_id)")
     return conn
 
 
@@ -40,27 +45,44 @@ def _unpack(blob):
     return np.frombuffer(blob, dtype=np.float32)
 
 
+def _split_long(par: str) -> list[str]:
+    sentences = re.split(r"(?<=[.!?])\s+|\n", par)
+    out, cur = [], ""
+    for s in sentences:
+        if len(s) > CHUNK_CHARS:
+            if cur:
+                out.append(cur)
+                cur = ""
+            for i in range(0, len(s), CHUNK_CHARS):
+                out.append(s[i : i + CHUNK_CHARS])
+        elif cur and len(cur) + len(s) + 1 > CHUNK_CHARS:
+            out.append(cur)
+            cur = s
+        else:
+            cur = f"{cur} {s}".strip()
+    if cur:
+        out.append(cur)
+    return out
+
+
 def chunk_text(text: str):
     text = text.strip()
     if not text:
         return []
     paras = [p.strip() for p in re.split(r"\n\s*\n", text) if p.strip()]
-    chunks, cur = [], ""
+    chunks, carry = [], ""
     for p in paras:
-        if len(p) > CHUNK_CHARS:
-            if cur:
-                chunks.append(cur)
-                cur = ""
-            for i in range(0, len(p), CHUNK_CHARS):
-                chunks.append(p[i : i + CHUNK_CHARS])
-            continue
-        if cur and len(cur) + len(p) + 1 > CHUNK_CHARS:
-            chunks.append(cur)
-            cur = p
-        else:
-            cur = f"{cur}\n{p}".strip()
-    if cur:
-        chunks.append(cur)
+        pieces = _split_long(p) if len(p) > CHUNK_CHARS else [p]
+        for piece in pieces:
+            if carry and len(carry) + len(piece) + 1 > CHUNK_CHARS:
+                chunks.append(carry)
+                carry = carry[-OVERLAP_CHARS:] + "\n" + piece
+            elif not carry:
+                carry = piece
+            else:
+                carry = f"{carry}\n{piece}"
+    if carry:
+        chunks.append(carry)
     return [c for c in chunks if c.strip()]
 
 
@@ -80,12 +102,15 @@ def add_document(filename: str, chunks: list[str], embeddings: np.ndarray):
 def list_documents():
     conn = _conn()
     rows = conn.execute("SELECT id, filename, created_at, n_chunks FROM documents ORDER BY id DESC").fetchall()
+    total = conn.execute("SELECT COUNT(*) FROM chunks").fetchone()[0]
     conn.close()
-    return [{"id": r[0], "filename": r[1], "created_at": r[2], "n_chunks": r[3]} for r in rows]
+    docs = [{"id": r[0], "filename": r[1], "created_at": r[2], "n_chunks": r[3]} for r in rows]
+    return {"documents": docs, "n_chunks": total}
 
 
 def delete_document(doc_id: int):
     conn = _conn()
+    conn.execute("DELETE FROM chunks WHERE doc_id = ?", (doc_id,))
     conn.execute("DELETE FROM documents WHERE id = ?", (doc_id,))
     conn.commit()
     conn.close()

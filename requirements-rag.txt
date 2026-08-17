@@ -1,0 +1,9 @@
+transformers==4.37.2
+fastapi==0.141.1
+uvicorn
+httpx
+pypdf
+python-multipart
+sentencepiece
+protobuf
+numpy

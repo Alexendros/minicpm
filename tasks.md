@@ -15,15 +15,15 @@
 **Objetivo**: el sistema funciona, pero hay bordes conocidos que deben cerrarse antes de crecer.
 
 - [ ] RAG con modelo `5-1b`: detectar la respuesta «No contexto proporcionado» (modelo 1B, prompts largos) y avisar al usuario o forzar `8b`
-- [ ] Chat streaming: si el servicio muere a mitad de respuesta, el frontend no informa — añadir mensaje de error claro y recuperación del estado
-- [ ] Frontend: borrar la sesión activa debe resetear correctamente el estado (selector y vista)
-- [ ] KB: verificar borrado en cascada de chunks al eliminar un documento + índice en `chunks(doc_id)`
+- [x] Chat streaming: si el servicio muere a mitad de respuesta, el frontend no informa — añadir mensaje de error claro y recuperación del estado
+- [x] Frontend: borrar la sesión activa debe resetear correctamente el estado (selector y vista)
+- [x] KB: verificar borrado en cascada de chunks al eliminar un documento + índice en `chunks(doc_id)`
 - [ ] Upload: límite de tamaño de fichero y de número de documentos simultáneos
-- [ ] Timeouts HTTP en todos los clientes de `main.py` (chat/embed/rerank) para que un servicio caído no cuelgue la GUI
+- [x] Timeouts HTTP en todos los clientes de `main.py` (chat/embed/rerank) para que un servicio caído no cuelgue la GUI
 - [ ] Nombres de fichero: evitar *path traversal* al guardar documentos subidos
-- [ ] Revisar que ningún log captura credenciales de correo (redactar si hace falta)
-- [ ] `stop-all.sh`: garantizar kill de todos los procesos y limpieza de PIDs huérfanos
-- [ ] Revisión final de huecos restantes tras los puntos anteriores
+- [x] Revisar que ningún log captura credenciales de correo (redactar si hace falta)
+- [x] `stop-all.sh`: garantizar kill de todos los procesos y limpieza de PIDs huérfanos
+- [x] Revisión final de huecos restantes tras los puntos anteriores
 
 ## Plan 2 — Hardening backend
 
