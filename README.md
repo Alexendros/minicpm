@@ -149,6 +149,10 @@ Los servicios base hablan OpenAI-compatible directamente en `8080`/`8081`.
 | Error de certificado TLS del Bridge | Certificado autofirmado (normal) | Verificación desactivada a propósito en `app/mail.py` |
 | `Connection refused` en correo | Bridge parado o puertos cambiados | Arranca Bridge; revisa puertos en la app Bridge |
 
+## Próximos planes
+
+El fichero [`tasks.md`](tasks.md) pre-anuncia los 3 planes de trabajo por orden: **solución de errores**, **hardening backend** y **UI/UX**. Cada plan se ejecuta en su propia iteración y se cierra con verificación y commit.
+
 ## Mantenimiento (git)
 
 El repo GitHub (privado) es la copia de control del código:
