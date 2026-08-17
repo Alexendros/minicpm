@@ -1,0 +1,9 @@
+models/
+venv-llm/
+venv-rag/
+src/
+bin/
+logs/
+app/data/
+__pycache__/
+*.pyc

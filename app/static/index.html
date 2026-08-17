@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MiniCPM Desktop</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <div class="brand">MiniCPM <span>Desktop</span></div>
+  <div id="service-dots" class="dots" title="Estado de servicios"></div>
+</header>
+
+<nav class="tabs">
+  <button data-tab="chat" class="active">Chat</button>
+  <button data-tab="kb">Base de conocimiento</button>
+  <button data-tab="mail">Correo</button>
+  <button data-tab="svc">Servicios</button>
+</nav>
+
+<main>
+  <section id="tab-chat" class="tab active">
+    <div class="chat-controls">
+      <div class="session-bar">
+        <select id="chat-session" title="Sesión"></select>
+        <button id="chat-new-session" class="ghost">Nueva</button>
+        <button id="chat-del-session" class="ghost" disabled>Borrar</button>
+      </div>
+      <div class="model-bar">
+        <select id="chat-model">
+          <option value="8b">MiniCPM 4.1-8B (GPU)</option>
+          <option value="5-1b">MiniCPM 5-1B (CPU)</option>
+        </select>
+        <label class="check"><input type="checkbox" id="chat-nothink" checked> sin razonamiento (/no_think)</label>
+        <button id="chat-clear" class="ghost">Limpiar</button>
+      </div>
+    </div>
+    <div id="chat-log" class="chat-log"></div>
+    <form id="chat-form" autocomplete="off">
+      <input id="chat-input" placeholder="Escribe tu mensaje…" autofocus>
+      <button type="submit">Enviar</button>
+    </form>
+  </section>
+
+  <section id="tab-kb" class="tab">
+    <div class="kb-upload">
+      <input type="file" id="kb-file" accept=".txt,.md,.json,.pdf" multiple>
+      <span id="kb-upload-msg">Sube documentos (txt, md, json, pdf)</span>
+    </div>
+    <div id="kb-list" class="kb-list"></div>
+    <div class="kb-search">
+      <h3>Buscar</h3>
+      <form id="kb-search-form" autocomplete="off">
+        <input id="kb-query" placeholder="Consulta…">
+        <label class="check"><input type="checkbox" id="kb-rerank" checked> rerank</label>
+        <button type="submit">Buscar</button>
+        <button type="submit" data-rag class="ghost">Responder (RAG)</button>
+      </form>
+      <div id="kb-results"></div>
+      <div id="rag-result"></div>
+    </div>
+  </section>
+
+  <section id="tab-mail" class="tab">
+    <div class="mail-status">
+      <span id="mail-bridge" class="badge">Bridge: …</span>
+      <span id="mail-creds" class="badge">Credenciales: …</span>
+      <form id="mail-config-form" class="mail-config hidden" autocomplete="off">
+        <input id="mail-user" placeholder="tu@protonmail.com" autocomplete="username">
+        <input id="mail-pass" type="password" placeholder="Contraseña de Bridge (no la de la cuenta)" autocomplete="current-password">
+        <button type="submit">Guardar y probar</button>
+      </form>
+    </div>
+    <div class="mail-toolbar">
+      <form id="mail-search-form" autocomplete="off">
+        <input id="mail-from" placeholder="De: (remitente)">
+        <input id="mail-subject" placeholder="Asunto:">
+        <input id="mail-text" placeholder="Texto:">
+        <input id="mail-since" type="date" title="Desde">
+        <label class="check"><input type="checkbox" id="mail-unread"> solo no leídos</label>
+        <button type="submit">Buscar</button>
+        <button type="button" id="mail-inbox" class="ghost">No leídos</button>
+      </form>
+    </div>
+    <div id="mail-list" class="mail-list"></div>
+    <div id="mail-detail" class="mail-detail"></div>
+    <div class="mail-compose">
+      <h3>Redactar</h3>
+      <form id="mail-compose-form" autocomplete="off">
+        <input id="mail-to" placeholder="Para: destinatario@ejemplo.com">
+        <input id="mail-subject-new" placeholder="Asunto:">
+        <textarea id="mail-body" rows="6" placeholder="Mensaje…"></textarea>
+        <button type="submit">Enviar</button>
+      </form>
+    </div>
+  </section>
+
+  <section id="tab-svc" class="tab">
+    <div id="gpu-info" class="gpu"></div>
+    <table class="svc-table">
+      <thead><tr><th>Servicio</th><th>Puerto</th><th>Estado</th><th>Acciones</th></tr></thead>
+      <tbody id="svc-rows"></tbody>
+    </table>
+    <div id="svc-logs"></div>
+  </section>
+</main>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
