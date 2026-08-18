@@ -1,18 +1,22 @@
 import json
+import re
 import subprocess
+import threading
+import time
 from pathlib import Path
 
 import httpx
 from fastapi import FastAPI, HTTPException, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 import mail
 from vectorstore import (
     add_document,
     append_session_messages,
     chunk_text,
+    count_documents,
     create_session,
     delete_document,
     delete_session,
@@ -35,6 +39,16 @@ SERVICES = {
 }
 EMBED_URL = "http://127.0.0.1:8002"
 RERANK_URL = "http://127.0.0.1:8003"
+
+MAX_UPLOAD_BYTES = 20 * 1024 * 1024
+MAX_DOCS = 100
+
+_NO_CONTEXT_RE = re.compile(
+    r"(no contexto|no tengo|no contiene|no lo s|no puedo|no se menciona|"
+    r"no se proporciona|sin informaci|i don't|cannot answer|no information|"
+    r"not in the|no encuentro)",
+    re.IGNORECASE,
+)
 
 app = FastAPI(title="MiniCPM Desktop")
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
@@ -67,14 +81,32 @@ def api_services():
     return out
 
 
+_start_lock = threading.Lock()
+
+
+def _wait_alive(name: str, deadline: float) -> bool:
+    while time.monotonic() < deadline:
+        if _is_alive(name):
+            return True
+        time.sleep(1)
+    return False
+
+
 @app.post("/api/services/{name}/start")
-def api_start(name: str):
+def api_start(name: str, wait: bool = True):
     if name not in SERVICES:
         raise HTTPException(404, "servicio desconocido")
     if _is_alive(name):
         return {"ok": True, "running": True}
-    subprocess.Popen([str(SCRIPTS / SERVICES[name]["script"])], start_new_session=True)
-    return {"ok": True, "running": False}
+    with _start_lock:
+        if _is_alive(name):
+            return {"ok": True, "running": True}
+        subprocess.Popen([str(SCRIPTS / SERVICES[name]["script"])], start_new_session=True)
+    if wait:
+        deadline = time.monotonic() + (180 if name == "8b" else 60)
+        if not _wait_alive(name, deadline):
+            raise HTTPException(504, f"servicio {name} no arrancó a tiempo")
+    return {"ok": True, "running": True}
 
 
 @app.post("/api/services/{name}/stop")
@@ -87,6 +119,7 @@ def api_stop(name: str):
             subprocess.run(["kill", pid_file.read_text().strip()], check=False)
         except Exception:
             pass
+        pid_file.unlink(missing_ok=True)
     return {"ok": True}
 
 
@@ -94,11 +127,11 @@ def api_stop(name: str):
 def api_gpu():
     try:
         out = subprocess.run(
-            ["nvidia-smi", "--query-gpu=memory.used,memory.total,utilization.gpu", "--format=csv,noheader,nounits"],
+            ["nvidia-smi", "--query-gpu=name,memory.used,memory.total,utilization.gpu", "--format=csv,noheader,nounits"],
             capture_output=True, text=True, timeout=3,
         ).stdout.strip()
-        used, total, util = [int(v) for v in out.split(",")]
-        return {"used_mib": used, "total_mib": total, "util_pct": util}
+        name, used, total, util = [v.strip() for v in out.split(",")]
+        return {"name": name, "used_mib": int(used), "total_mib": int(total), "util_pct": int(util)}
     except Exception:
         return None
 
@@ -125,9 +158,23 @@ def _chat_payload(model: str, messages: list, no_think: bool):
 
 class ChatReq(BaseModel):
     model: str
-    messages: list
+    messages: list = Field(min_length=1)
     no_think: bool = False
-    session_id: int | None = None
+    session_id: int | None = Field(default=None, ge=1)
+
+
+def _trim_turns(messages: list, max_turns: int = 24) -> list:
+    limit = max_turns * 2
+    return messages if len(messages) <= limit else messages[-limit:]
+
+
+def _messages_for_model(req: ChatReq) -> list:
+    if req.session_id is None:
+        return req.messages
+    s = get_session_messages(req.session_id)
+    if not s:
+        raise HTTPException(404, "sesión no encontrada")
+    return _trim_turns(s["messages"] + req.messages)
 
 
 @app.get("/api/sessions")
@@ -164,10 +211,8 @@ def api_chat(req: ChatReq):
         raise HTTPException(400, "modelo no válido")
     if not _is_alive(req.model):
         raise HTTPException(503, f"servicio {req.model} no está corriendo")
-    if req.session_id is not None and not get_session_messages(req.session_id):
-        raise HTTPException(404, "sesión no encontrada")
-    msgs = _chat_payload(req.model, req.messages, req.no_think)
-    body = {"model": req.model, "messages": msgs, "stream": True, "max_tokens": 1024}
+    msgs = _messages_for_model(req)
+    body = {"model": req.model, "messages": msgs, "stream": True, "max_tokens": 2048}
 
     def gen():
         content = ""
@@ -177,7 +222,7 @@ def api_chat(req: ChatReq):
                 for line in r.iter_lines():
                     if not line:
                         continue
-                    yield line + "\n"
+                    yield line + "\n\n"
                     if line.startswith("data:") and line != "data: [DONE]":
                         try:
                             delta = line[5:].strip()
@@ -187,12 +232,20 @@ def api_chat(req: ChatReq):
                         except Exception:
                             pass
         finally:
-            if req.session_id is not None:
+            if req.session_id is not None and content:
                 saved = [dict(m) for m in req.messages[-1:]]
                 saved.append({"role": "assistant", "content": content})
                 append_session_messages(req.session_id, saved)
 
-    return StreamingResponse(gen(), media_type="text/event-stream")
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )
 
 
 def _embed_query(text: str):
@@ -225,20 +278,32 @@ def _extract_text(filename: str, data: bytes) -> str:
     raise HTTPException(400, f"formato no soportado: .{ext} (usa txt, md, json o pdf)")
 
 
+def _safe_filename(name: str) -> str:
+    base = Path(name.replace("\\", "/")).name.strip()
+    if not base or base in (".", ".."):
+        raise HTTPException(400, "nombre de fichero inválido")
+    return base[:255]
+
+
 @app.post("/api/documents")
 async def api_upload(file: UploadFile):
     if not _is_alive("embed"):
         raise HTTPException(503, "servicio embed no está corriendo")
+    if count_documents() >= MAX_DOCS:
+        raise HTTPException(413, f"límite de {MAX_DOCS} documentos alcanzado; borra alguno antes de subir")
     data = await file.read()
-    text = _extract_text(file.filename, data)
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise HTTPException(413, f"fichero demasiado grande: máximo {MAX_UPLOAD_BYTES // (1024 * 1024)} MB")
+    filename = _safe_filename(file.filename)
+    text = _extract_text(filename, data)
     chunks = chunk_text(text)
     if not chunks:
         raise HTTPException(400, "el documento no tiene contenido extraíble")
     embs = _embed_corpus(chunks)
     import numpy as np
 
-    doc_id = add_document(file.filename, chunks, np.array(embs, dtype=np.float32))
-    return {"id": doc_id, "filename": file.filename, "n_chunks": len(chunks)}
+    doc_id = add_document(filename, chunks, np.array(embs, dtype=np.float32))
+    return {"id": doc_id, "filename": filename, "n_chunks": len(chunks)}
 
 
 @app.get("/api/documents")
@@ -308,15 +373,27 @@ def api_rag(req: RagReq):
         f"PREGUNTA: {req.query}"
     )
     msgs = [{"role": "user", "content": prompt}]
-    body = {"model": req.model, "messages": _chat_payload(req.model, msgs, req.no_think), "stream": False, "max_tokens": 512}
+    body = {"model": req.model, "messages": _chat_payload(req.model, msgs, req.no_think), "stream": False, "max_tokens": 1024}
     r = httpx.post(_svc_url(req.model) + "/v1/chat/completions", json=body, timeout=600)
     r.raise_for_status()
     data = r.json()
     content = data["choices"][0]["message"].get("content") or ""
     reasoning = data["choices"][0]["message"].get("reasoning_content") or ""
+    answer = content.strip() or reasoning.strip()
+    forced_8b = False
+    if req.model == "5-1b" and _NO_CONTEXT_RE.search(answer) and _is_alive("8b"):
+        body["model"] = "8b"
+        r = httpx.post(_svc_url("8b") + "/v1/chat/completions", json=body, timeout=600)
+        r.raise_for_status()
+        data = r.json()
+        content = data["choices"][0]["message"].get("content") or ""
+        reasoning = data["choices"][0]["message"].get("reasoning_content") or ""
+        answer = content.strip() or reasoning.strip()
+        forced_8b = True
     return {
-        "answer": content.strip() or reasoning.strip(),
+        "answer": answer,
         "reasoning": reasoning,
+        "forced_8b": forced_8b,
         "sources": [{"filename": s["filename"], "text": s["text"], "score": s.get("rerank_score", s["cosine"])} for s in results],
     }
 

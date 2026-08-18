@@ -6,9 +6,15 @@ for pidfile in "$BASE"/logs/*.pid; do
   name=$(basename "$pidfile" .pid)
   pid=$(cat "$pidfile")
   if kill -0 "$pid" 2>/dev/null; then
-    kill "$pid" && echo "$name: parado"
+    kill "$pid" 2>/dev/null || true
+    sleep 1
+    if kill -0 "$pid" 2>/dev/null; then
+      kill -9 "$pid" 2>/dev/null || true
+    fi
+    echo "$name: parado"
   else
     echo "$name: no estaba corriendo"
   fi
+  rm -f "$pidfile"
 done
 echo "Stack detenido"

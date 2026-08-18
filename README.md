@@ -36,7 +36,7 @@ python3.12 -m venv venv-llm    # descargas de HuggingFace
 python3.12 -m venv venv-rag    # runtime de la GUI (CPU)
 
 venv-llm/bin/pip install huggingface_hub
-venv-rag/bin/pip install transformers==4.37.2 fastapi uvicorn httpx pypdf python-multipart sentencepiece protobuf
+venv-rag/bin/pip install -r requirements-rag.txt
 # torch SOLO CPU (deja la GPU al 8B):
 venv-rag/bin/pip install torch --index-url https://download.pytorch.org/whl/cpu
 ```
@@ -100,7 +100,7 @@ Abre la GUI: **http://127.0.0.1:8090**
 ### Pestaña Correo (Proton Mail Bridge)
 Requisito: Proton Mail Bridge corriendo en la máquina (IMAP `127.0.0.1:1143`, SMTP `127.0.0.1:1025`).
 
-1. La primera vez, rellena el formulario: tu email Proton + **la contraseña generada por Bridge** (app Bridge → cuenta → «Detalles del buzón» — no es la contraseña de tu cuenta). Se guarda en `app/data/mail_creds.json` (permisos `600`)
+1. La primera vez, rellena el formulario: tu email Proton + **la contraseña generada por Bridge** (app Bridge → cuenta → «Detalles del buzón» — no es la contraseña de tu cuenta). Se guarda en el llavero del sistema con `secret-tool` (sin escribir contraseñas en disco; `app/data/mail_creds.json` solo se lee como respaldo de instalaciones antiguas)
 2. **No leídos** carga la bandeja; los campos de búsqueda filtran por remitente/asunto/texto/fecha (con acentos incluidos)
 3. Al abrir un correo: botones **leído/no leído**, **Responder** (pre-rellena destinatario y `Re:`)
 4. **Redactar** envía por SMTP. La lista se refresca sola cada 60s
@@ -136,8 +136,8 @@ Los servicios base hablan OpenAI-compatible directamente en `8080`/`8081`.
 ## Privacidad
 
 - Nada sale de tu máquina: los 5 servicios escuchan solo en `127.0.0.1`
-- Tus documentos (`kb.db`) y credenciales de correo (`mail_creds.json`) **no** se versionan en git
-- El HTML de los correos se renderiza en un `iframe` aislado (sin scripts)
+- Tus documentos (`kb.db`) y credenciales de correo (en el llavero del sistema) **no** se versionan en git
+- El cuerpo de los correos se muestra como **texto plano** extraído del HTML (sin iframe ni scripts)
 
 ## Solución de problemas
 
@@ -146,7 +146,7 @@ Los servicios base hablan OpenAI-compatible directamente en `8080`/`8081`.
 | RAG responde «No contexto proporcionado» con modelo 5-1b | El 1B es débil con prompts largos | Usa el modelo **8b** para RAG |
 | La interfaz del sistema se congela al arrancar | Lanzamiento simultáneo de servicios (thrashing CPU) | `stop-all.sh` y luego `start-all.sh` |
 | Login de correo rechazado | Se usa la contraseña de la cuenta Proton | Usa la **contraseña generada por Bridge** |
-| Error de certificado TLS del Bridge | Certificado autofirmado (normal) | Verificación desactivada a propósito en `app/mail.py` |
+| Error de certificado TLS del Bridge | Certificado autofirmado (normal) | La verificación TLS se desactiva solo para el Bridge local (`127.0.0.1`); un host remoto produce un error explícito en `app/mail.py` |
 | `Connection refused` en correo | Bridge parado o puertos cambiados | Arranca Bridge; revisa puertos en la app Bridge |
 
 ## Próximos planes
