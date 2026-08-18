@@ -205,3 +205,5 @@ El repo GitHub (privado) es la copia de control del código:
 git -C ~/minicpm log --oneline      # historial
 git -C ~/minicpm status             # cambios pendientes
 ```
+
+El proyecto se instala en /home/USUARIO/minicpm.
