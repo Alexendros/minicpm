@@ -13,7 +13,7 @@ Leyenda de verificación:
 
 ## Fase 1 — Sanitización y publicación
 
-Estado: en curso (sanitización mergeada; publicación manual pendiente)
+Estado: cerrada (visibilidad pública + protección configurada; first-time contributors pendiente manual)
 
 | Tarea | Verificación | Resultado |
 |---|---|---|
@@ -23,8 +23,9 @@ Estado: en curso (sanitización mergeada; publicación manual pendiente)
 | `LICENSE` Apache-2.0 | fichero en raíz | OK: holder Alejandro Domingo Agustí, 2026 |
 | `SECURITY.md` | fichero en raíz | OK: política de reporte + alcance local-first |
 | Identidad en historial | manual | Mantener `operaciones@alexendros.dev` (sin reescritura) |
-| Visibilidad → público | manual: Settings | Pendiente tras merge |
-| Branch protection + first-time contributors | manual: Settings | Pendiente tras merge |
+| Visibilidad → público | `gh repo view` `isPrivate=false` | OK: repo público |
+| Branch protection en `main` | `gh api …/branches/main/protection` | OK: enforce_admins, linear history, sin force push ni delete. Required status checks diferidas a Fase 5 (los jobs de CI aún no existen) |
+| First-time contributors | manual: Actions → General | Pendiente: sin endpoint REST, solo UI |
 
 Commit: `plan 4.1: sanitización y publicación del repo`
 Fecha: 2026-08-18
