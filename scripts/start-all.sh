@@ -32,4 +32,5 @@ start_one rag
 wait_http "http://127.0.0.1:$MINICPM_EMBED_PORT/health" 90 || echo "aviso: rag (embed+rerank) no responde aún, continúo"
 start_one gui
 wait_http "http://127.0.0.1:$MINICPM_GUI_PORT/" 30 || echo "aviso: GUI no responde aún"
-echo "Todo listo: GUI en http://127.0.0.1:$MINICPM_GUI_PORT"
+echo "Todo listo: GUI en http://127.0.0.1:$MINICPM_GUI_PORT"if [ $# -eq 0 ]
+    then
