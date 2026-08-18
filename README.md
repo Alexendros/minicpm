@@ -9,7 +9,7 @@ Stack **local-first** de modelos MiniCPM sobre llama.cpp con interfaz web propia
 | LLM rápido | `8080` | MiniCPM5-1B Q4_K_M (CPU) | Chat rápido |
 | LLM calidad | `8081` | MiniCPM4.1-8B Q4_K_M (GPU) | Chat + RAG |
 | Embeddings + reranker | `8002` | MiniCPM-Embedding-Light + MiniCPM-Reranker-Light (CPU) | Vectoriza documentos/consultas y reordena resultados (un solo proceso) |
-| **GUI** | `8090` | — | Interfaz web: http://127.0.0.1:8090 |
+| **GUI** | `8090` | — | Interfaz web: `http://127.0.0.1:8090` |
 
 ## Requisitos
 
@@ -86,7 +86,7 @@ bash ~/minicpm/scripts/smoke_test.sh   # revalida el sistema en cualquier moment
 
 > **Importante**: usa siempre `start-all.sh`. Lanzar los servicios sueltos a la vez satura la CPU y puede congelar la interfaz gráfica del sistema (los hilos están limitados por servicio y el arranque es en cascada a propósito).
 
-Abre la GUI: **http://127.0.0.1:8090**
+Abre la GUI: **`http://127.0.0.1:8090`**
 
 ### Arranque automático (systemd user)
 
@@ -104,21 +104,25 @@ systemctl --user status minicpm-gui.service   # comprobar
 ## Uso de la GUI
 
 ### Pestaña Chat
+
 1. Elige modelo: **8b** (calidad, GPU) o **5-1b** (rápido, CPU)
 2. Marca **/no_think** para respuestas directas; si no, el razonamiento se muestra en un desplegable
 3. **Sesiones**: el selector de arriba guarda cada conversación automáticamente (SQLite). Botones **Nueva** / **Borrar** — sobreviven a reinicios
 
 ### Pestaña Base de conocimiento
+
 1. **Sube documentos** (txt, md, json, pdf, docx, html) — se trocean por párrafos/frases y se vectorizan
 2. **Busca**: top-k por similitud; marca *rerank* para reordenar con el reranker
 3. **Responder (RAG)**: pregunta con contexto del documento y respuesta **citando fuentes** `[Fuente N]` (desplegables con el texto usado)
 
 ### Pestaña Servicios
+
 - GPU en vivo (MiB usados/total, % utilidad)
 - Estado de los 4 procesos con botones **Iniciar/Parar**
 - Logs de cada uno (últimas 40 líneas)
 
 ### Pestaña Correo (Proton Mail Bridge)
+
 Requisito: Proton Mail Bridge corriendo en la máquina (IMAP `127.0.0.1:1143`, SMTP `127.0.0.1:1025`).
 
 1. La primera vez, rellena el formulario: tu email Proton + **la contraseña generada por Bridge** (app Bridge → cuenta → «Detalles del buzón» — no es la contraseña de tu cuenta). Se guarda en el llavero del sistema con `secret-tool` (sin escribir contraseñas en disco; `app/data/mail_creds.json` solo se lee como respaldo de instalaciones antiguas)
@@ -160,7 +164,7 @@ curl http://127.0.0.1:8090/v1/chat/completions \
 
 ## Estructura de directorios
 
-```
+```text
 ~/minicpm/
 ├── app/            # GUI: main.py (orquestador), vectorstore.py, mail.py, static/ (frontend)
 ├── scripts/        # arranque/parada/smoke + runtime RAG (embed+rerank); env.sh / env.list
