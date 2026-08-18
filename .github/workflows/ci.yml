@@ -65,5 +65,5 @@ jobs:
         run: npx markdownlint-cli@0.45 "docs/**/*.md" README.md
       - name: unit sin LLM
         run: |
-          pip install pytest fastapi pydantic numpy httpx
+          pip install pytest fastapi pydantic numpy httpx python-multipart
           MINICPM_HOME="$RUNNER_TEMP/m" pytest tests/unit -q
