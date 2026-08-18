@@ -53,17 +53,18 @@ Notas: Merge squash `06c6c36` (PR #4). Ajustes de Settings en Actions necesarios
 
 ## Fase 3 — Convenciones
 
-Estado: pendiente
+Estado: cerrada
 
 | Tarea | Verificación | Resultado |
 |---|---|---|
-| Título `plan N:` | cloud: PR `fix stuff` bloqueado | — |
-| Paths prohibidos y tamaño | cloud: PR con `*.gguf` bloqueado | — |
-| `pull_request_template.md` | manual: visible al abrir PR | — |
+| Título `plan N:` | cloud: PR `fix stuff` bloqueado | OK: PR #9 rojo en `titulo del PR` |
+| Mensajes de commit | cloud: PR con commit `fix stuff` bloqueado | OK: PR #11 rojo en `mensajes de commit` |
+| Paths prohibidos y tamaño | cloud: PR con `*.gguf` bloqueado | OK: PR #10 rojo en `paths prohibidos`; tamaño ≤800 y fichero nuevo ≤500 validados en PR conforme (#8) |
+| `pull_request_template.md` | manual: visible al abrir PR | OK: presente en `.github/` y usado como body en PR #8 |
 
 Commit: `plan 4.3: convenciones de PR`
-Fecha: —
-Notas: —
+Fecha: 2026-08-18
+Notas: Merge squash `d3499c8` (PR #8). Job `conventions` en `ci.yml` (solo `pull_request`, `timeout-minutes: 5`) implementa las 6 reglas de la tabla de la spec; el YAML de muestra del plan (líneas 289-306) solo cubría 4 — se priorizó la spec (se añadieron fichero nuevo ≤500 líneas, fichero >5 MiB y la exclusión `*.lock`). Verificación 3 PRs rojos: #9 (título `fix stuff`) rojo en `titulo del PR`; al cortar el job en el primer fallo, `mensajes de commit` quedó `skipped`, por eso se añadió #11 (título conforme, commit `fix stuff`) rojo en `mensajes de commit`; #10 (`models/foo.gguf` añadido con `git add -f` porque `models/` está en `.gitignore`) rojo en `paths prohibidos`. Los tres con `static` verde (solo `conventions` falla) y cerrados sin merge; ramas `verify/3-*` borradas (local y remoto). Sin cambio de allowlist en esta fase. La rama remota `plan/4-cicd` (heredada de Fase 2) quedó obsoleta y se reutilizó esta fase con force push.
 
 ---
 
