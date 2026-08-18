@@ -207,3 +207,5 @@ git -C ~/minicpm status             # cambios pendientes
 ```
 
 El proyecto se instala en /home/USUARIO/minicpm.
+
+El proyecto se instala en /home/usuario/minicpm.
