@@ -1,0 +1,11 @@
+title = "MiniCPM Desktop gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+regexTarget = "match"
+regexes = [
+    "X-Api-Key: tu-clave",
+    "MINICPM_API_KEY=abc123def456",
+]
