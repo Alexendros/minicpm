@@ -35,19 +35,19 @@ Notas: Merge squash `a4224bb` (PR #3). README documenta `cp scripts/env.list.exa
 
 ## Fase 2 — CI estático
 
-Estado: cerrada (verificación 3 PRs rojos pendiente, se ejecuta al inicio de la Fase 3)
+Estado: cerrada
 
 | Tarea | Verificación | Resultado |
 |---|---|---|
 | `.github/workflows/ci.yml` job `static` | cloud: PR #4 dispatch `32096538234` | OK: 14 pasos verdes |
-| bash / python / js / systemd | cloud: cada check falla cuando toca (PRs A/B/C) | Pendiente (verificación) |
+| bash / python / js / systemd | cloud: cada check falla cuando toca (PRs A/B/C) | OK: PR A (bash-n) rojo en `bash -n`; PR B (secreto) rojo en `gitleaks`; PR C (ruta) rojo en `sin rutas de usuario` |
 | gitleaks + anti-rutas + env placeholders | cloud: secreto real y ruta `/home/…` fallan | OK: allowlist `.gitleaks.toml` para placeholders documentados |
 | markdownlint estricto | cloud | OK |
 | `tests/unit` sin LLM | cloud: pytest verde sin red ni GPU | OK: 20 tests |
 
 Commit: `plan 4.2: ci estático`
 Fecha: 2026-08-18
-Notas: Merge squash `06c6c36` (PR #4). Ajustes de Settings en Actions necesarios para que corra en repo público: `github_owned_allowed=true` (las acciones de GitHub no se permiten por patrón) y patrón `gitleaks/gitleaks-action@ff98106…70c7` en `patterns_allowed` (un patrón pelado `owner/repo` no matchea una referencia por SHA). Acciones pinadas a SHA completo. `systemd verify` prepara entorno (`$HOME/minicpm/scripts` + `env.list`) porque los `.service` usan `%h`. `python-multipart` añadido al paso de tests unitarios (FastAPI lo exige al importar).
+Notas: Merge squash `06c6c36` (PR #4). Ajustes de Settings en Actions necesarios para que corra en repo público: `github_owned_allowed=true` (las acciones de GitHub no se permiten por patrón) y patrón `gitleaks/gitleaks-action@ff98106…70c7` en `patterns_allowed` (un patrón pelado `owner/repo` no matchea una referencia por SHA). Acciones pinadas a SHA completo. `systemd verify` prepara entorno (`$HOME/minicpm/scripts` + `env.list`) porque los `.service` usan `%h`. `python-multipart` añadido al paso de tests unitarios (FastAPI lo exige al importar). Verificación 3 PRs rojos: #5/#6/#7 cerrados sin merge (el PR B quedó rojo en `gitleaks` porque el valor con comillas no lo cubre la allowlist; el check `secretos solo placeholder` se evaluó tras él).
 
 ---
 
