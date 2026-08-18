@@ -13,7 +13,7 @@ Leyenda de verificación:
 
 ## Fase 1 — Sanitización y publicación
 
-Estado: en curso (sanitización completa; publicación manual pendiente)
+Estado: en curso (sanitización mergeada; publicación manual pendiente)
 
 | Tarea | Verificación | Resultado |
 |---|---|---|
@@ -27,8 +27,8 @@ Estado: en curso (sanitización completa; publicación manual pendiente)
 | Branch protection + first-time contributors | manual: Settings | Pendiente tras merge |
 
 Commit: `plan 4.1: sanitización y publicación del repo`
-Fecha: —
-Notas: README documenta `cp scripts/env.list.example scripts/env.list` (paso 5).
+Fecha: 2026-08-18
+Notas: Merge squash `a4224bb` (PR #3). README documenta `cp scripts/env.list.example scripts/env.list` (paso 5).
 
 ---
 
