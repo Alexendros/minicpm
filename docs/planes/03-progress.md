@@ -1,0 +1,145 @@
+# Registro de ejecución — Plan 4: CI/CD
+
+Plan de referencia: `02-plan-cicd.md`. Cada fase se cierra con verificación ejecutada y commit `plan 4.x: …`.
+Estados: `pendiente` | `en curso` | `cerrada` | `bloqueada`.
+
+Leyenda de verificación:
+
+- `cloud`: check en GitHub Actions (runners `ubuntu-latest`).
+- `local`: comando en la máquina con GPU.
+- `manual`: decisión o acción del propietario en Settings.
+
+---
+
+## Fase 1 — Sanitización y publicación
+
+Estado: en curso (sanitización completa; publicación manual pendiente)
+
+| Tarea | Verificación | Resultado |
+|---|---|---|
+| `env.list` → `env.list.example` + `.gitignore` | `git ls-files` sin `env.list` | OK: ejemplo con `/home/USUARIO`; real local intacto e ignorado |
+| Placeholder en `docs/02` | `git grep -nE '/home/[a-z]'` vacío (fuera de `*.example`) | OK: `/home/USUARIO/minicpm` |
+| Decisión `progress.md` / `findings.md` | manual | Excluidos del repo público (`git rm --cached` + `.gitignore`); también `task_plan.md` |
+| `LICENSE` Apache-2.0 | fichero en raíz | OK: holder Alejandro Domingo Agustí, 2026 |
+| `SECURITY.md` | fichero en raíz | OK: política de reporte + alcance local-first |
+| Identidad en historial | manual | Mantener `operaciones@alexendros.dev` (sin reescritura) |
+| Visibilidad → público | manual: Settings | Pendiente tras merge |
+| Branch protection + first-time contributors | manual: Settings | Pendiente tras merge |
+
+Commit: `plan 4.1: sanitización y publicación del repo`
+Fecha: —
+Notas: README documenta `cp scripts/env.list.example scripts/env.list` (paso 5).
+
+---
+
+## Fase 2 — CI estático
+
+Estado: pendiente
+
+| Tarea | Verificación | Resultado |
+|---|---|---|
+| `.github/workflows/ci.yml` job `static` | cloud: PR de prueba verde | — |
+| bash / python / js / systemd | cloud: cada check falla cuando toca (PRs A/B/C) | — |
+| gitleaks + anti-rutas + env placeholders | cloud: secreto real y ruta `/home/…` fallan | — |
+| markdownlint estricto | cloud | — |
+| `tests/unit` sin LLM | cloud: pytest verde sin red ni GPU | — |
+
+Commit: `plan 4.2: ci estático`
+Fecha: —
+Notas: —
+
+---
+
+## Fase 3 — Convenciones
+
+Estado: pendiente
+
+| Tarea | Verificación | Resultado |
+|---|---|---|
+| Título `plan N:` | cloud: PR `fix stuff` bloqueado | — |
+| Paths prohibidos y tamaño | cloud: PR con `*.gguf` bloqueado | — |
+| `pull_request_template.md` | manual: visible al abrir PR | — |
+
+Commit: `plan 4.3: convenciones de PR`
+Fecha: —
+Notas: —
+
+---
+
+## Fase 4 — Gate de integración en la nube
+
+Estado: pendiente
+
+| Tarea | Verificación | Resultado |
+|---|---|---|
+| `smoke-lite` en PR con código | cloud: `SMOKE: TODOS OK` < 15 min con caché | — |
+| `smoke-full` en push a `main` | cloud: 8B CPU verde < 45 min | — |
+| Caché de modelos y llama.cpp | cloud: segundo run sin descargas | — |
+| `SMOKE_RAG_MODEL` parametrizado | local + cloud | — |
+| PR solo docs → smoke skipped | cloud: merge permitido | — |
+
+Commit: `plan 4.4: gate de integración en la nube`
+Fecha: —
+Notas: —
+
+---
+
+## Fase 5 — Gate de merge
+
+Estado: pendiente
+
+| Tarea | Verificación | Resultado |
+|---|---|---|
+| Required checks en `main` | manual: merge bloqueado en rojo | — |
+| Linear history / squash | manual | — |
+| Re-launch documentado en README | manual | — |
+
+Commit: `plan 4.5: branch protection y gates`
+Fecha: —
+Notas: —
+
+---
+
+## Fase 6 — Release management
+
+Estado: pendiente
+
+| Tarea | Verificación | Resultado |
+|---|---|---|
+| `release.yml` validate + smoke + tag | cloud: dispatch `0.1.0` | — |
+| Checklist GPU local pre-release | local: smoke + slot swap + `nvidia-smi` limpio + `git status` limpio | — |
+| Artefactos sin binarios + SHA256SUMS | cloud: release < 5 MiB | — |
+| `docs/CHANGELOG.md` | sección `[0.1.0]` con fecha | — |
+
+Commit: `plan 4.6: releases semver con gate`
+Fecha: —
+Notas: —
+
+---
+
+## Fase 7 — Robustez
+
+Estado: pendiente
+
+| Tarea | Verificación | Resultado |
+|---|---|---|
+| Timeouts en todos los jobs | cloud: revisión de workflows | — |
+| Cachés efectivas | cloud: run repetido < mitad de tiempo | — |
+| Dos smoke-full seguidos verdes | cloud | — |
+| Stack local intacto tras checklist | local: sin procesos, `git status` limpio | — |
+
+Commit: `plan 4.7: robustez y timeouts`
+Fecha: —
+Notas: —
+
+---
+
+## Cierre del plan
+
+- [ ] Fases 1–7 cerradas con commit.
+- [ ] PR `plan/4-cicd` mergeado por squash con checks verdes.
+- [ ] Release `v0.1.0` creada tras smoke-full en nube + checklist GPU local.
+- [ ] Este registro actualizado con fechas reales.
+
+Fecha de cierre: —
+Commit de merge: —
