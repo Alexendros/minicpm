@@ -1,0 +1,14 @@
+[Unit]
+Description=MiniCPM 4.1 8B (GPU slot)
+After=network-online.target
+
+[Service]
+Type=forking
+PIDFile=%h/minicpm/logs/minicpm4-8b.pid
+Restart=on-failure
+RestartSec=3
+EnvironmentFile=%h/minicpm/scripts/env.list
+ExecStart=%h/minicpm/scripts/start-minicpm4-8b.sh
+
+[Install]
+WantedBy=default.target

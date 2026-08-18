@@ -9,6 +9,8 @@ import smtplib
 import socket
 import ssl
 import subprocess
+import threading
+import time
 from email.message import EmailMessage
 from html.parser import HTMLParser
 
@@ -19,6 +21,19 @@ SMTP_PORT = int(os.environ.get("PROTON_SMTP_PORT", "1025"))
 CREDS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "mail_creds.json")
 SECRET_SERVICE = "minicpm"
 SECRET_LABEL = "MiniCPM Proton Bridge"
+
+_fetch_lock = threading.Lock()
+_last_fetch_ts = 0.0
+FETCH_MIN_INTERVAL = 0.2
+
+
+def _throttle_fetch():
+    global _last_fetch_ts
+    with _fetch_lock:
+        wait = FETCH_MIN_INTERVAL - (time.monotonic() - _last_fetch_ts)
+        if wait > 0:
+            time.sleep(wait)
+        _last_fetch_ts = time.monotonic()
 
 
 def tls_ctx():
@@ -154,75 +169,60 @@ def _summaries(imap, uids, limit):
     return out
 
 
-def _select_inbox(imap, readonly=True):
-    imap.select("INBOX", readonly=readonly)
-
-
-def unread(limit=50):
+def folders():
     with _connect() as imap:
-        _select_inbox(imap)
+        typ, data = imap.list()
+        if typ != "OK" or not data:
+            return {"folders": []}
+        out = []
+        for item in data:
+            line = item.decode("utf-8", "replace") if isinstance(item, bytes) else item
+            m = re.search(r'"([^"]*)"\s*$', line)
+            if m:
+                out.append(m.group(1))
+        return {"folders": out}
+
+
+def _select(imap, folder="INBOX", readonly=True):
+    imap.select(folder, readonly=readonly)
+
+
+def unread(limit=50, folder="INBOX"):
+    with _connect() as imap:
+        _select(imap, folder)
         typ, data = imap.uid("SEARCH", None, "UNSEEN")
         uids = data[0].split() if data and data[0] else []
         return {"count": len(uids), "messages": _summaries(imap, uids, limit)}
 
 
-def _has_non_ascii(s):
-    return any(ord(c) > 127 for c in s)
-
-
-def _quoted(s):
-    return '"%s"' % s.replace("\\", "\\\\").replace('"', '\\"')
-
-
-def search(from_=None, subject=None, text=None, since=None, unread_only=False, limit=50):
-    local_filter = any(
-        v and _has_non_ascii(v) for v in (from_, subject, text)
-    )
+def search(from_=None, subject=None, text=None, since=None, unread_only=False, limit=50, folder="INBOX"):
     with _connect() as imap:
-        _select_inbox(imap)
-        if local_filter:
-            criteria = []
-            if unread_only:
-                criteria.append("UNSEEN")
-            if since:
-                criteria += ["SINCE", since]
-            criteria = criteria or ["ALL"]
-            criteria = [c.encode("utf-8") for c in criteria]
-            typ, data = imap.uid("SEARCH", "UTF-8", *criteria)
-            uids = data[0].split() if data and data[0] else []
-            msgs = _summaries(imap, uids, 50)
-            if from_:
-                needle = from_.lower()
-                msgs = [m for m in msgs if needle in (m["from"] or "").lower()]
-            if subject:
-                needle = subject.lower()
-                msgs = [m for m in msgs if needle in (m["subject"] or "").lower()]
-            if text:
-                needle = text.lower()
-                for m in msgs:
-                    try:
-                        m["body"] = fetch(m["uid"])["body"]
-                    except Exception:
-                        m["body"] = ""
-                msgs = [m for m in msgs if needle in (m["body"] or "").lower()]
-            return {"count": len(msgs), "messages": msgs[:limit]}
+        _select(imap, folder)
         criteria = []
         if unread_only:
             criteria.append("UNSEEN")
-        if from_:
-            criteria += ["FROM", _quoted(from_)]
-        if subject:
-            criteria += ["SUBJECT", _quoted(subject)]
-        if text:
-            criteria += ["TEXT", _quoted(text)]
         if since:
             criteria += ["SINCE", since]
-        if not criteria:
-            criteria = ["ALL"]
-        criteria = [c.encode("utf-8") if isinstance(c, str) else c for c in criteria]
-        typ, data = imap.uid("SEARCH", "UTF-8", *criteria)
+        criteria = criteria or ["ALL"]
+        criteria = [c.encode("utf-8") for c in criteria]
+        typ, data = imap.uid("SEARCH", *criteria)
         uids = data[0].split() if data and data[0] else []
-        return {"count": len(uids), "messages": _summaries(imap, uids, limit)}
+        msgs = _summaries(imap, uids, 200)
+        if from_:
+            needle = from_.lower()
+            msgs = [m for m in msgs if needle in (m["from"] or "").lower()]
+        if subject:
+            needle = subject.lower()
+            msgs = [m for m in msgs if needle in (m["subject"] or "").lower()]
+        if text:
+            needle = text.lower()
+            for m in msgs:
+                try:
+                    m["body"] = fetch(m["uid"], folder=folder)["body"]
+                except Exception:
+                    m["body"] = ""
+            msgs = [m for m in msgs if needle in (m["body"] or "").lower()]
+        return {"count": len(msgs), "messages": msgs[:limit]}
 
 
 class _TextExtractor(HTMLParser):
@@ -274,33 +274,78 @@ def extract_body(msg):
     return text
 
 
-def fetch(uid):
+def _attachments(msg):
+    out = []
+    if not msg.is_multipart():
+        return out
+    for i, part in enumerate(msg.walk()):
+        if part.get_content_disposition() != "attachment" and not part.get_filename():
+            continue
+        payload = part.get_payload(decode=True)
+        out.append({
+            "part": i,
+            "filename": decode_header_value(part.get_filename() or f"adjunto-{i}"),
+            "ctype": part.get_content_type(),
+            "size": len(payload) if payload else 0,
+        })
+    return out
+
+
+def fetch(uid, folder="INBOX"):
+    _throttle_fetch()
     with _connect() as imap:
-        _select_inbox(imap)
+        _select(imap, folder)
         typ, data = imap.uid("FETCH", str(uid).encode(), "(RFC822)")
         if not data or not isinstance(data[0], tuple):
             raise KeyError(f"UID {uid} no encontrado")
         msg = email.message_from_bytes(data[0][1])
         return {
             "uid": int(uid),
+            "folder": folder,
             "date": msg.get("Date", ""),
             "from": decode_header_value(msg.get("From", "")),
             "to": decode_header_value(msg.get("To", "")),
             "subject": decode_header_value(msg.get("Subject", "")),
             "message_id": msg.get("Message-ID", ""),
+            "references": msg.get("References", ""),
+            "in_reply_to": msg.get("In-Reply-To", ""),
+            "attachments": _attachments(msg),
             "body": extract_body(msg),
         }
 
 
-def mark(uid, read=True):
+def fetch_attachment(uid, part, folder="INBOX"):
+    _throttle_fetch()
     with _connect() as imap:
-        _select_inbox(imap, readonly=False)
+        _select(imap, folder)
+        typ, data = imap.uid("FETCH", str(uid).encode(), "(RFC822)")
+        if not data or not isinstance(data[0], tuple):
+            raise KeyError(f"UID {uid} no encontrado")
+        msg = email.message_from_bytes(data[0][1])
+        if not msg.is_multipart():
+            raise KeyError(f"UID {uid} sin adjuntos")
+        for i, p in enumerate(msg.walk()):
+            if i == part:
+                payload = p.get_payload(decode=True)
+                if payload is None:
+                    raise ValueError("parte sin contenido decodificable")
+                return {
+                    "filename": decode_header_value(p.get_filename() or f"adjunto-{part}"),
+                    "ctype": p.get_content_type(),
+                    "data": payload,
+                }
+        raise KeyError(f"parte {part} no encontrada")
+
+
+def mark(uid, read=True, folder="INBOX"):
+    with _connect() as imap:
+        _select(imap, folder, readonly=False)
         flag = "+FLAGS" if read else "-FLAGS"
         imap.uid("STORE", str(uid).encode(), flag, r"(\Seen)")
-        return {"uid": int(uid), "read": read}
+        return {"uid": int(uid), "folder": folder, "read": read}
 
 
-def send(to, subject, body):
+def send(to, subject, body, in_reply_to=None, references=None):
     user, pw = get_creds()
     if not user or not pw:
         raise RuntimeError("Correo no configurado: faltan credenciales")
@@ -308,6 +353,12 @@ def send(to, subject, body):
     msg["From"] = user
     msg["To"] = to
     msg["Subject"] = subject
+    if in_reply_to:
+        msg["In-Reply-To"] = in_reply_to
+        refs = [r for r in (references or "").split() if r]
+        if in_reply_to not in refs:
+            refs.append(in_reply_to)
+        msg["References"] = " ".join(refs)
     msg.set_content(body)
     with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as s:
         s.starttls(context=tls_ctx())

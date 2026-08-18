@@ -1,9 +1,10 @@
 const $ = (s) => document.querySelector(s);
-const SVC_META = {
-  "5-1b": { label: "MiniCPM 5-1B", port: 8080 },
-  "8b": { label: "MiniCPM 4.1-8B", port: 8081 },
-  embed: { label: "Embeddings", port: 8002 },
-  rerank: { label: "Reranker", port: 8003 },
+const SVC_META = {};
+const SVC_LABELS = {
+  "5-1b": "MiniCPM 5-1B",
+  "8b": "MiniCPM 4.1-8B",
+  embed: "Embeddings",
+  rerank: "Reranker",
 };
 
 document.querySelectorAll(".tabs button").forEach((b) => {
@@ -31,6 +32,19 @@ async function api(url, opts = {}) {
   return r.json();
 }
 
+function svcState(s) {
+  if (s.state === "running") return "ok";
+  if (s.state === "starting") return "warn";
+  return "down";
+}
+
+function svcText(s) {
+  if (s.state === "running") return "activo";
+  if (s.state === "starting") return "arrancando…";
+  if (s.state === "error") return "error";
+  return "caído";
+}
+
 function pollServices() {
   api("/api/services")
     .then((svcs) => {
@@ -38,8 +52,8 @@ function pollServices() {
       dots.innerHTML = "";
       for (const [name, s] of Object.entries(svcs)) {
         const d = document.createElement("span");
-        d.className = "dot " + (s.running ? "ok" : "down");
-        d.title = `${SVC_META[name].label} :${s.port} — ${s.running ? "activo" : "caído"}`;
+        d.className = "dot " + svcState(s);
+        d.title = `${(SVC_META[name] || {}).label || SVC_LABELS[name] || name} :${s.port} — ${svcText(s)}`;
         dots.appendChild(d);
       }
     })
@@ -57,8 +71,26 @@ function pollGpu() {
     .catch(() => {});
 }
 
+function initMeta() {
+  api("/api/meta")
+    .then((m) => {
+      const svcTab = $('button[data-tab="svc"]');
+      if (svcTab) svcTab.textContent = "Servicios";
+      for (const [name, info] of Object.entries(m.services)) {
+        SVC_META[name] = {
+          label: SVC_LABELS[name] || name,
+          port: info.port,
+          device: info.device,
+          model: info.model,
+        };
+      }
+    })
+    .catch(() => {});
+}
+
 setInterval(pollServices, 5000);
 setInterval(pollGpu, 5000);
+initMeta();
 pollServices();
 pollGpu();
 
@@ -89,6 +121,12 @@ function parseSseChunk(buf) {
   return { content, reason };
 }
 
+let chatAbort = null;
+
+$("#chat-cancel").addEventListener("click", () => {
+  if (chatAbort) chatAbort.abort();
+});
+
 $("#chat-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const input = $("#chat-input");
@@ -100,6 +138,9 @@ $("#chat-form").addEventListener("submit", async (e) => {
   const model = $("#chat-model").value;
   const div = addMsg("assistant", "…");
   let reasonEl = null;
+  let content = "", reason = "";
+  chatAbort = new AbortController();
+  $("#chat-cancel").classList.remove("hidden");
 
   try {
     const r = await fetch("/api/chat", {
@@ -111,6 +152,7 @@ $("#chat-form").addEventListener("submit", async (e) => {
         no_think: $("#chat-nothink").checked,
         session_id: currentSession,
       }),
+      signal: chatAbort.signal,
     });
     if (!r.ok) {
       let msg = r.statusText;
@@ -119,9 +161,16 @@ $("#chat-form").addEventListener("submit", async (e) => {
     }
     const reader = r.body.getReader();
     const dec = new TextDecoder();
-    let buf = "", content = "", reason = "";
+    let buf = "";
+    let aborted = false;
     while (true) {
-      const { done, value } = await reader.read();
+      let done, value;
+      try {
+        ({ done, value } = await reader.read());
+      } catch (err) {
+        if (err.name === "AbortError") { aborted = true; break; }
+        throw err;
+      }
       if (done) break;
       buf += dec.decode(value, { stream: true });
       const parts = buf.split("\n\n");
@@ -155,9 +204,20 @@ $("#chat-form").addEventListener("submit", async (e) => {
       div.querySelector(".bubble").textContent = content || "…";
       chatLog.scrollTop = chatLog.scrollHeight;
     }
-    if (!content && !reason) div.querySelector(".bubble").textContent = "(sin respuesta)";
+    if (aborted) {
+      div.querySelector(".bubble").textContent = content || "(cancelado)";
+    } else if (!content && !reason) {
+      div.querySelector(".bubble").textContent = "(sin respuesta)";
+    }
   } catch (err) {
-    div.querySelector(".bubble").textContent = "Error: " + err.message;
+    if (err.name === "AbortError") {
+      div.querySelector(".bubble").textContent = content || "(cancelado)";
+    } else {
+      div.querySelector(".bubble").textContent = "Error: " + err.message;
+    }
+  } finally {
+    chatAbort = null;
+    $("#chat-cancel").classList.add("hidden");
   }
   refreshSessions();
 });
@@ -215,7 +275,7 @@ async function refreshDocs() {
       : "";
     $("#kb-list").innerHTML = warn + (docs.length
       ? docs.map((dd) =>
-          `<div class="doc-row"><span>${esc(dd.filename)}</span><span class="muted">${dd.n_chunks} chunks · ${dd.created_at}</span><button data-del="${dd.id}" class="ghost">Borrar</button></div>`
+          `<div class="doc-row"><span>${esc(dd.filename)}</span><span class="muted">${dd.n_chunks} chunks · ${dd.created_at}${dd.status === "indexing" ? " · (indexando…)" : dd.status === "error" ? " · (error)" : ""}</span><button data-del="${dd.id}" class="ghost">Borrar</button></div>`
         ).join("")
       : '<div class="muted">Sin documentos</div>');
     $("#kb-list").querySelectorAll("[data-del]").forEach((b) =>
@@ -239,7 +299,12 @@ $("#kb-file").addEventListener("change", async (e) => {
       const fd = new FormData();
       fd.append("file", f);
       const res = await api("/api/documents", { method: "POST", body: fd });
-      msg.textContent = `OK: ${f.name} → ${res.n_chunks} chunks`;
+      if (res.state === "indexing") {
+        msg.textContent = `Indexando ${f.name}…`;
+        await new Promise((r) => setTimeout(r, 1500));
+      } else {
+        msg.textContent = `OK: ${f.name} → ${res.n_chunks} chunks`;
+      }
     } catch (err) {
       msg.textContent = `Error en ${f.name}: ${err.message}`;
     }
@@ -259,8 +324,20 @@ $("#kb-search-form").addEventListener("submit", async (e) => {
   rbox.innerHTML = "";
   if (rag) {
     rbox.innerHTML = '<div class="muted">Pensando…</div>';
+    let content = "", reason = "", sources = [], forced = false, rerank = true;
+    const render = () => {
+      const forcedMsg = forced ? '<div class="muted">El 5-1b no respondió con el contexto; se usó el 8b automáticamente.</div>' : "";
+      const rerankMsg = !rerank && sources.length ? '<div class="muted">Reranker no disponible; orden por similitud coseno.</div>' : "";
+      const reasonHtml = reason ? `<details class="reason"><summary>Razonamiento</summary><pre>${esc(reason)}</pre></details>` : "";
+      const srcHtml = sources.map((s, i) =>
+        `<details class="source"><summary>Fuente ${i + 1}: ${esc(s.filename)} (score ${s.score})</summary><div class="hit-text">${esc(s.text)}</div></details>`
+      ).join("");
+      rbox.innerHTML = forcedMsg + rerankMsg +
+        `<div class="rag-answer"><div class="bubble">${esc(content || "…")}</div></div>` +
+        reasonHtml + srcHtml;
+    };
     try {
-      const res = await api("/api/rag", {
+      const resp = await fetch("/api/rag", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -268,15 +345,63 @@ $("#kb-search-form").addEventListener("submit", async (e) => {
           top_k: 4,
           model: $("#chat-model").value,
           no_think: $("#chat-nothink").checked,
+          stream: true,
         }),
       });
-      rbox.innerHTML =
-        (res.forced_8b ? '<div class="muted">El 5-1b no respondió con el contexto; se usó el 8b automáticamente.</div>' : "") +
-        `<div class="rag-answer"><div class="bubble">${esc(res.answer)}</div></div>` +
-        (res.reasoning ? `<details class="reason"><summary>Razonamiento</summary><pre>${esc(res.reasoning)}</pre></details>` : "") +
-        res.sources.map((s, i) =>
-          `<details class="source"><summary>Fuente ${i + 1}: ${esc(s.filename)} (score ${s.score})</summary><div class="hit-text">${esc(s.text)}</div></details>`
-        ).join("");
+      if (!resp.ok) {
+        let m = resp.statusText;
+        try { m = (await resp.json()).detail || m; } catch {}
+        throw new Error(m);
+      }
+      const reader = resp.body.getReader();
+      const dec = new TextDecoder();
+      let buf = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        const parts = buf.split("\n\n");
+        buf = parts.pop() || "";
+        for (const part of parts) {
+          const line = part.split("\n").find((l) => l.startsWith("data:"));
+          if (!line) continue;
+          const payload = line.slice(5).trim();
+          if (payload === "[DONE]") continue;
+          let j;
+          try { j = JSON.parse(payload); } catch { continue; }
+          if (j.type === "sources") {
+            sources = j.sources || [];
+            render();
+          } else if (j.type === "delta") {
+            content += j.content || "";
+            reason += j.reasoning || "";
+            render();
+          } else if (j.type === "done") {
+            if (j.answer) content = j.answer;
+            forced = j.forced_8b;
+            rerank = j.rerank;
+          } else if (j.type === "error") {
+            content = "Error: " + j.detail;
+          }
+        }
+      }
+      if (buf.trim()) {
+        const line = buf.split("\n").find((l) => l.startsWith("data:"));
+        if (line) {
+          const payload = line.slice(5).trim();
+          if (payload && payload !== "[DONE]") {
+            try {
+              const j = JSON.parse(payload);
+              if (j.type === "done") {
+                if (j.answer) content = j.answer;
+                forced = j.forced_8b;
+                rerank = j.rerank;
+              }
+            } catch {}
+          }
+        }
+      }
+      render();
     } catch (err) {
       rbox.innerHTML = `<div class="muted">Error: ${esc(err.message)}</div>`;
     }
@@ -296,11 +421,12 @@ $("#kb-search-form").addEventListener("submit", async (e) => {
 });
 
 function renderSvc(name, s) {
-  const m = SVC_META[name];
+  const m = SVC_META[name] || {};
+  const running = s.state === "running";
   const row = document.createElement("tr");
-  row.innerHTML = `<td>${m.label}</td><td>:${m.port}</td><td><span class="dot ${s.running ? "ok" : "down"}"></span> ${s.running ? "activo" : "caído"}</td>
-    <td><button data-act="${name}" data-cmd="start" ${s.running ? "disabled" : ""}>Iniciar</button>
-    <button data-act="${name}" data-cmd="stop" class="ghost" ${s.running ? "" : "disabled"}>Parar</button></td>`;
+  row.innerHTML = `<td>${m.label || SVC_LABELS[name] || name}</td><td>:${s.port}</td><td><span class="dot ${svcState(s)}"></span> ${svcText(s)}</td>
+    <td><button data-act="${name}" data-cmd="start" ${running ? "disabled" : ""}>Iniciar</button>
+    <button data-act="${name}" data-cmd="stop" class="ghost" ${running ? "" : "disabled"}>Parar</button></td>`;
   return row;
 }
 
@@ -355,6 +481,18 @@ async function refreshMailStatus() {
     $("#mail-creds").className = "badge " + (st.configured ? "ok" : "down");
     $("#mail-config-form").classList.toggle("hidden", st.configured);
     if (st.configured && !mailList.dataset.loaded) loadMailUnread();
+    if (st.configured && !$("#mail-folder").dataset.loaded) loadMailFolders();
+  } catch {}
+}
+
+async function loadMailFolders() {
+  try {
+    const res = await api("/api/mail/folders");
+    const sel = $("#mail-folder");
+    sel.dataset.loaded = "1";
+    sel.innerHTML = res.folders
+      .map((f) => `<option value="${esc(f)}">${esc(f)}</option>`)
+      .join("");
   } catch {}
 }
 
@@ -393,15 +531,21 @@ function renderMailList(res) {
   );
 }
 
+function currentMailFolder() {
+  return ($("#mail-folder") && $("#mail-folder").value) || "INBOX";
+}
+
 async function loadMailUnread() {
   mailList.dataset.loaded = "1";
   mailList.innerHTML = '<div class="muted">Cargando…</div>';
   try {
-    renderMailList(await api("/api/mail/unread?limit=50"));
+    renderMailList(await api("/api/mail/unread?limit=50&folder=" + encodeURIComponent(currentMailFolder())));
   } catch (err) {
     mailList.innerHTML = `<div class="muted">Error: ${esc(err.message)}</div>`;
   }
 }
+
+$("#mail-folder").addEventListener("change", loadMailUnread);
 
 $("#mail-search-form").addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -415,6 +559,7 @@ $("#mail-search-form").addEventListener("submit", async (e) => {
   if (text) params.set("text", text);
   if (since) params.set("since", since);
   if ($("#mail-unread").checked) params.set("unread", "true");
+  params.set("folder", currentMailFolder());
   mailList.innerHTML = '<div class="muted">Buscando…</div>';
   try {
     renderMailList(await api("/api/mail/search?" + params));
@@ -425,14 +570,21 @@ $("#mail-search-form").addEventListener("submit", async (e) => {
 
 $("#mail-inbox").addEventListener("click", loadMailUnread);
 
+let mailReplyCtx = null;
+
 async function openMail(uid) {
   mailDetail.innerHTML = '<div class="muted">Cargando…</div>';
   try {
-    const m = await api("/api/mail/fetch?uid=" + uid);
+    const m = await api("/api/mail/fetch?uid=" + uid + "&folder=" + encodeURIComponent(currentMailFolder()));
+    const atts = (m.attachments || []).map((a) =>
+      `<div class="muted">📎 ${esc(a.filename)} (${esc(a.ctype)}, ${a.size} B) —
+        <a href="/api/mail/attachment?uid=${m.uid}&part=${a.part}&folder=${encodeURIComponent(m.folder || currentMailFolder())}">descargar</a></div>`
+    ).join("");
     mailDetail.innerHTML =
       `<div class="mail-head"><b>${esc(m.subject || "(sin asunto)")}</b></div>
        <div class="muted">De: ${esc(m.from)} · Para: ${esc(m.to)} · ${esc(m.date)}</div>
        <div class="muted">Msg-ID: ${esc(m.message_id)}</div>
+       ${atts}
        <pre class="mail-body">${esc(m.body)}</pre>
        <button id="mail-reply">Responder</button>
        <button data-mark="${m.uid}" data-read="true">Marcar leído</button>
@@ -442,6 +594,7 @@ async function openMail(uid) {
       $("#mail-to").value = addr;
       const s = m.subject || "";
       $("#mail-subject-new").value = /^re:/i.test(s) ? s : "Re: " + s;
+      mailReplyCtx = { in_reply_to: m.message_id, references: m.references || "" };
       document.querySelector(".mail-compose").scrollIntoView({ behavior: "smooth" });
     });
     mailDetail.querySelectorAll("[data-mark]").forEach((b) =>
@@ -449,7 +602,7 @@ async function openMail(uid) {
         await api("/api/mail/mark", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ uid: +b.dataset.mark, read: b.dataset.read === "true" }),
+          body: JSON.stringify({ uid: +b.dataset.mark, read: b.dataset.read === "true", folder: currentMailFolder() }),
         });
         loadMailUnread();
       })
@@ -465,15 +618,21 @@ $("#mail-compose-form").addEventListener("submit", async (e) => {
   btn.disabled = true;
   btn.textContent = "Enviando…";
   try {
+    const payload = {
+      to: $("#mail-to").value.trim(),
+      subject: $("#mail-subject-new").value.trim(),
+      body: $("#mail-body").value,
+    };
+    if (mailReplyCtx) {
+      payload.in_reply_to = mailReplyCtx.in_reply_to;
+      payload.references = mailReplyCtx.references;
+    }
     const res = await api("/api/mail/send", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        to: $("#mail-to").value.trim(),
-        subject: $("#mail-subject-new").value.trim(),
-        body: $("#mail-body").value,
-      }),
+      body: JSON.stringify(payload),
     });
+    mailReplyCtx = null;
     alert("Enviado a " + res.to);
     e.target.reset();
   } catch (err) {

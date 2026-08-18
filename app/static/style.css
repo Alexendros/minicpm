@@ -6,6 +6,7 @@
   --muted: #8b93a3;
   --accent: #4f8cff;
   --ok: #3ecf8e;
+  --warn: #ffb020;
   --down: #ff5c5c;
   --user-bubble: #1d3a6b;
   --assistant-bubble: #20242e;
@@ -36,6 +37,7 @@ header {
 .dots { display: flex; gap: 8px; }
 .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
 .dot.ok { background: var(--ok); box-shadow: 0 0 6px var(--ok); }
+.dot.warn { background: var(--warn); box-shadow: 0 0 6px var(--warn); }
 .dot.down { background: var(--down); }
 
 .tabs { display: flex; gap: 4px; padding: 10px 20px 0; }

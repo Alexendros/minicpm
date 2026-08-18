@@ -1,0 +1,2 @@
+MiniCPM Desktop usa una base de conocimiento vectorial con sqlite y chunks.
+La RTX 5060 es una tarjeta grafica NVIDIA con 8 GB de VRAM para portatiles.

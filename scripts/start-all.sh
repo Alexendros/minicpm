@@ -25,13 +25,11 @@ wait_http() {
 }
 
 start_one minicpm4-8b
-wait_http "http://127.0.0.1:8081/v1/models" 60 || echo "aviso: 8B no responde aún, continúo"
+wait_http "http://127.0.0.1:$MINICPM_8B_PORT/v1/models" 60 || echo "aviso: 8B no responde aún, continúo"
 start_one minicpm5-1b
-wait_http "http://127.0.0.1:8080/v1/models" 45 || echo "aviso: 1B no responde aún, continúo"
-start_one embed
-wait_http "http://127.0.0.1:8002/health" 45 || echo "aviso: embed no responde aún, continúo"
-start_one rerank
-wait_http "http://127.0.0.1:8003/health" 45 || echo "aviso: rerank no responde aún, continúo"
+wait_http "http://127.0.0.1:$MINICPM_5B_PORT/v1/models" 45 || echo "aviso: 1B no responde aún, continúo"
+start_one rag
+wait_http "http://127.0.0.1:$MINICPM_EMBED_PORT/health" 90 || echo "aviso: rag (embed+rerank) no responde aún, continúo"
 start_one gui
-wait_http "http://127.0.0.1:8090/" 30 || echo "aviso: GUI no responde aún"
-echo "Todo listo: GUI en http://127.0.0.1:8090"
+wait_http "http://127.0.0.1:$MINICPM_GUI_PORT/" 30 || echo "aviso: GUI no responde aún"
+echo "Todo listo: GUI en http://127.0.0.1:$MINICPM_GUI_PORT"

@@ -1,0 +1,14 @@
+[Unit]
+Description=MiniCPM RAG runtime (embed + rerank, CPU)
+After=network-online.target
+
+[Service]
+Type=forking
+PIDFile=%h/minicpm/logs/rag.pid
+Restart=on-failure
+RestartSec=3
+EnvironmentFile=%h/minicpm/scripts/env.list
+ExecStart=%h/minicpm/scripts/start-rag.sh
+
+[Install]
+WantedBy=default.target

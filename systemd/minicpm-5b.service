@@ -1,0 +1,14 @@
+[Unit]
+Description=MiniCPM 5 1B (CPU)
+After=network-online.target
+
+[Service]
+Type=forking
+PIDFile=%h/minicpm/logs/minicpm5-1b.pid
+Restart=on-failure
+RestartSec=3
+EnvironmentFile=%h/minicpm/scripts/env.list
+ExecStart=%h/minicpm/scripts/start-minicpm5-1b.sh
+
+[Install]
+WantedBy=default.target

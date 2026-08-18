@@ -1,0 +1,15 @@
+[Unit]
+Description=MiniCPM Desktop GUI
+After=network-online.target minicpm-8b.service minicpm-5b.service minicpm-rag.service
+Wants=minicpm-8b.service minicpm-5b.service minicpm-rag.service
+
+[Service]
+Type=forking
+PIDFile=%h/minicpm/logs/gui.pid
+Restart=on-failure
+RestartSec=3
+EnvironmentFile=%h/minicpm/scripts/env.list
+ExecStart=%h/minicpm/scripts/start-gui.sh
+
+[Install]
+WantedBy=default.target
