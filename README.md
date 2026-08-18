@@ -59,7 +59,16 @@ venv-llm/bin/hf download openbmb/MiniCPM-Embedding-Light --local-dir models/embe
 venv-llm/bin/hf download openbmb/MiniCPM-Reranker-Light --local-dir models/rerank
 ```
 
-### 5. Comprobar
+### 5. Configuración local
+
+```bash
+cp scripts/env.list.example scripts/env.list
+# editar: MINICPM_HOME, MINICPM_EMBED_DIR y MINICPM_RERANK_DIR con tus rutas reales
+```
+
+El fichero `scripts/env.list` está ignorado por git; los valores reales viven solo en tu máquina.
+
+### 6. Comprobar
 
 ```bash
 bash scripts/smoke_test.sh

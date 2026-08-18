@@ -58,7 +58,7 @@ Contrato `GET /api/meta`:
 
 ```json
 {
-  "home": "/home/alexendros/minicpm",
+  "home": "/home/USUARIO/minicpm",
   "ctx": 4096,
   "services": {
     "5-1b": {"port": 8080, "device": "cpu", "model": "MiniCPM5-1B-Q4_K_M.gguf"},

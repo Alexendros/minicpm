@@ -7,3 +7,9 @@ logs/
 app/data/
 __pycache__/
 *.pyc
+scripts/env.list
+*.local
+.env
+docs/progress.md
+docs/findings.md
+docs/task_plan.md
