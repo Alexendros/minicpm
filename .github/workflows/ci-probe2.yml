@@ -1,0 +1,9 @@
+name: ci-probe2
+on:
+  pull_request:
+    branches: [main]
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo hello-no-actions
