@@ -1,0 +1,65 @@
+name: ci
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  static:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-rag.txt
+      - uses: actions/setup-node@v4
+        with: { node-version: "22" }
+      - name: bash -n
+        run: for f in scripts/*.sh; do bash -n "$f"; done
+      - name: python compile + ast
+        run: |
+          python -m compileall -q app scripts
+          python - <<'PY'
+          import ast, pathlib
+          for p in list(pathlib.Path("app").glob("*.py")) + list(pathlib.Path("scripts").glob("*.py")):
+              ast.parse(p.read_text(), filename=str(p))
+          PY
+      - name: ruff
+        run: pip install ruff==0.14.5 && ruff check app scripts
+      - name: node --check + eslint
+        run: |
+          node --check app/static/app.js
+          npx eslint@9 app/static/app.js
+      - name: systemd verify
+        run: for u in systemd/*.service; do systemd-analyze verify "$u"; done
+      - name: gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: sin rutas de usuario
+        run: |
+          ! grep -rnE '/home/[a-z]' scripts systemd app README.md docs \
+            --exclude='*.example' --exclude-dir='__pycache__'
+      - name: secretos solo placeholder
+        run: |
+          ! grep -nE '(_KEY|_PASS|_TOKEN|_SECRET)=["'"'"']?[A-Za-z0-9_\-]{12,}' \
+            scripts/env.sh scripts/env.list.example
+      - name: markdownlint
+        run: npx markdownlint-cli@0.45 "docs/**/*.md" README.md
+      - name: unit sin LLM
+        run: |
+          pip install pytest fastapi pydantic numpy httpx
+          MINICPM_HOME="$RUNNER_TEMP/m" pytest tests/unit -q
