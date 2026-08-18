@@ -67,3 +67,41 @@ jobs:
         run: |
           pip install pytest fastapi pydantic numpy httpx python-multipart
           MINICPM_HOME="$RUNNER_TEMP/m" pytest tests/unit -q
+
+  conventions:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with: { fetch-depth: 0 }
+      - name: titulo del PR
+        run: |
+          echo "${{ github.event.pull_request.title }}" | grep -qE '^plan [0-9]+(\.[0-9]+)?: .+'
+      - name: mensajes de commit
+        run: |
+          git log --format=%s origin/main..HEAD | grep -vE '^(plan [0-9]+(\.[0-9]+)?: |Merge )' && exit 1 || true
+      - name: tamano del PR
+        run: |
+          LINES=$(git diff --numstat origin/main...HEAD -- . ':!docs' ':!*.lock' | awk '{a+=$1; d+=$2} END {print a+d}')
+          echo "cambios: ${LINES:-0} lineas"
+          [ "${LINES:-0}" -le 800 ]
+      - name: fichero nuevo
+        run: |
+          for f in $(git diff --diff-filter=A --name-only origin/main...HEAD -- . ':!docs'); do
+            n=$(wc -l < "$f")
+            echo "nuevo: $f ($n lineas)"
+            [ "$n" -le 500 ]
+          done
+      - name: tamano de fichero
+        run: |
+          for f in $(git diff --name-only origin/main...HEAD); do
+            [ -f "$f" ] || continue
+            sz=$(stat -c%s "$f")
+            [ "$sz" -le 5242880 ] || { echo "fichero >5MiB: $f"; exit 1; }
+          done
+      - name: paths prohibidos
+        run: |
+          git diff --name-only origin/main...HEAD | \
+            grep -E '^(models/|venv-|src/llama\.cpp/|bin/|logs/|app/data/)|\.(gguf|safetensors|bin)$' \
+            && exit 1 || true
