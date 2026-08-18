@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
-BASE="$HOME/minicpm"
+. "$(dirname "$0")/env.sh"
+BASE="${MINICPM_HOME:-$HOME/minicpm}"
 for pidfile in "$BASE"/logs/*.pid; do
   [ -f "$pidfile" ] || continue
   name=$(basename "$pidfile" .pid)

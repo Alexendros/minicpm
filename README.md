@@ -8,8 +8,7 @@ Stack **local-first** de modelos MiniCPM sobre llama.cpp con interfaz web propia
 |---|---|---|---|
 | LLM rápido | `8080` | MiniCPM5-1B Q4_K_M (CPU) | Chat rápido |
 | LLM calidad | `8081` | MiniCPM4.1-8B Q4_K_M (GPU) | Chat + RAG |
-| Embeddings | `8002` | MiniCPM-Embedding-Light (CPU) | Vectoriza documentos y consultas |
-| Reranker | `8003` | MiniCPM-Reranker-Light (CPU) | Reordena resultados por relevancia |
+| Embeddings + reranker | `8002` | MiniCPM-Embedding-Light + MiniCPM-Reranker-Light (CPU) | Vectoriza documentos/consultas y reordena resultados (un solo proceso) |
 | **GUI** | `8090` | — | Interfaz web: http://127.0.0.1:8090 |
 
 ## Requisitos
@@ -71,7 +70,7 @@ Debe terminar con `SMOKE: TODOS OK` (los 4 servicios tienen que estar corriendo,
 ## Arranque y parada
 
 ```bash
-~/minicpm/scripts/start-all.sh    # arranca los 5 procesos en orden (tarda ~1 min en cargar el 8B)
+~/minicpm/scripts/start-all.sh    # arranca los 4 procesos en orden (tarda ~1 min en cargar el 8B)
 ~/minicpm/scripts/stop-all.sh     # detiene todo
 bash ~/minicpm/scripts/smoke_test.sh   # revalida el sistema en cualquier momento
 ```
@@ -79,6 +78,19 @@ bash ~/minicpm/scripts/smoke_test.sh   # revalida el sistema en cualquier moment
 > **Importante**: usa siempre `start-all.sh`. Lanzar los servicios sueltos a la vez satura la CPU y puede congelar la interfaz gráfica del sistema (los hilos están limitados por servicio y el arranque es en cascada a propósito).
 
 Abre la GUI: **http://127.0.0.1:8090**
+
+### Arranque automático (systemd user)
+
+Hay unidades de usuario listas en `systemd/` para recuperar el stack al iniciar sesión:
+
+```bash
+systemctl --user enable --now minicpm-8b.service minicpm-5b.service minicpm-rag.service minicpm-gui.service
+systemctl --user status minicpm-gui.service   # comprobar
+```
+
+- `minicpm-rag.service` engloba embeddings + reranker (un solo proceso en `8002`)
+- Las unidades usan `scripts/env.list` (dotenv) y `Restart=on-failure` con `RestartSec=3`
+- Mientras el stack arranca a mano con `start-all.sh`, el `flock` de cada script evita procesos duplicados
 
 ## Uso de la GUI
 
@@ -88,13 +100,13 @@ Abre la GUI: **http://127.0.0.1:8090**
 3. **Sesiones**: el selector de arriba guarda cada conversación automáticamente (SQLite). Botones **Nueva** / **Borrar** — sobreviven a reinicios
 
 ### Pestaña Base de conocimiento
-1. **Sube documentos** (txt, md, json, pdf) — se trocean por párrafos y se vectorizan
+1. **Sube documentos** (txt, md, json, pdf, docx, html) — se trocean por párrafos/frases y se vectorizan
 2. **Busca**: top-k por similitud; marca *rerank* para reordenar con el reranker
 3. **Responder (RAG)**: pregunta con contexto del documento y respuesta **citando fuentes** `[Fuente N]` (desplegables con el texto usado)
 
 ### Pestaña Servicios
 - GPU en vivo (MiB usados/total, % utilidad)
-- Estado de los 5 procesos con botones **Iniciar/Parar**
+- Estado de los 4 procesos con botones **Iniciar/Parar**
 - Logs de cada uno (últimas 40 líneas)
 
 ### Pestaña Correo (Proton Mail Bridge)
@@ -109,22 +121,41 @@ Requisito: Proton Mail Bridge corriendo en la máquina (IMAP `127.0.0.1:1143`, S
 
 | Endpoint | Descripción |
 |---|---|
+| `POST /v1/chat/completions` | Chat OpenAI-compatible (con `X-Api-Key` si está configurada) |
 | `POST /api/chat` | Chat OpenAI-compatible, streaming SSE (`model`, `messages`, `no_think`, `session_id`) |
 | `POST /api/documents` | Subir documento (multipart) |
 | `GET /api/search?query=&top_k=&rerank=` | Búsqueda vectorial (+ rerank opcional) |
 | `POST /api/rag` | Pregunta con contexto (`query`, `top_k`, `model`, `no_think`) |
 | `GET/POST /api/sessions`, `DELETE /api/sessions/{id}` | Sesiones de chat |
-| `GET /api/mail/status` · `/unread` · `/search` · `/fetch?uid=` · `POST /mark` · `/send` | Correo |
-| `GET /api/services` · `POST /api/services/{name}/start\|stop` · `GET /api/gpu` · `GET /api/logs/{name}` | Gestión |
+| `GET /api/mail/status` · `/folders` · `/unread` · `/search` · `/fetch?uid=` · `/attachment?uid=&part=` · `POST /mark` · `/send` | Correo |
+| `GET /api/services` · `POST /api/services/{name}/start\|stop` · `GET /api/gpu` · `GET /api/host` · `GET /api/logs/{name}` | Gestión |
+| `GET /api/meta` | Configuración activa (puertos, modelos, sampling) |
+| `GET/POST /api/slot` | Ocupante del slot GPU (`none`, `8b`, `v45`, `mcp`) con swap |
 
 Los servicios base hablan OpenAI-compatible directamente en `8080`/`8081`.
+
+### Agentes / OpenCode
+
+La GUI expone `POST /v1/chat/completions` en `http://127.0.0.1:8090` para usar MiniCPM desde agentes (OpenCode, scripts):
+
+```bash
+curl http://127.0.0.1:8090/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -H 'X-Api-Key: tu-clave' \        # solo si MINICPM_API_KEY está configurada
+  -d '{"model":"8b","messages":[{"role":"user","content":"Resume el estado"}]}'
+```
+
+- Soporta `stream: true` (SSE) y `stream: false` con el shape estándar de OpenAI
+- La clave se fija en `scripts/env.sh` (`MINICPM_API_KEY`); si queda vacía, el endpoint no exige clave
+- **Notion MCP sigue siendo el servidor MCP oficial** de este repositorio; MiniCPM vía `/v1` es para agentes de chat/redacción
 
 ## Estructura de directorios
 
 ```
 ~/minicpm/
 ├── app/            # GUI: main.py (orquestador), vectorstore.py, mail.py, static/ (frontend)
-├── scripts/        # arranque/parada/smoke + APIs embed/rerank
+├── scripts/        # arranque/parada/smoke + runtime RAG (embed+rerank); env.sh / env.list
+├── systemd/        # unidades de usuario minicpm-*.service (arranque automático)
 ├── models/         # GGUF y modelos HF (NO versionado)
 ├── venv-llm/       # descargas HF (NO versionado)
 ├── venv-rag/       # runtime GUI (NO versionado)
@@ -135,7 +166,7 @@ Los servicios base hablan OpenAI-compatible directamente en `8080`/`8081`.
 
 ## Privacidad
 
-- Nada sale de tu máquina: los 5 servicios escuchan solo en `127.0.0.1`
+- Nada sale de tu máquina: los 4 servicios escuchan solo en `127.0.0.1`
 - Tus documentos (`kb.db`) y credenciales de correo (en el llavero del sistema) **no** se versionan en git
 - El cuerpo de los correos se muestra como **texto plano** extraído del HTML (sin iframe ni scripts)
 

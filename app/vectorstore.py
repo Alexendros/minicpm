@@ -34,7 +34,24 @@ def _conn():
         "emb BLOB NOT NULL)"
     )
     conn.execute("CREATE INDEX IF NOT EXISTS idx_chunks_doc ON chunks(doc_id)")
+    _ensure_columns(conn)
     return conn
+
+
+def _ensure_columns(conn):
+    doc_cols = {r[1] for r in conn.execute("PRAGMA table_info(documents)")}
+    if "sha256" not in doc_cols:
+        conn.execute("ALTER TABLE documents ADD COLUMN sha256 TEXT")
+    if "status" not in doc_cols:
+        conn.execute("ALTER TABLE documents ADD COLUMN status TEXT NOT NULL DEFAULT 'ready'")
+    chunk_cols = {r[1] for r in conn.execute("PRAGMA table_info(chunks)")}
+    if "page" not in chunk_cols:
+        conn.execute("ALTER TABLE chunks ADD COLUMN page INTEGER")
+    if "char_start" not in chunk_cols:
+        conn.execute("ALTER TABLE chunks ADD COLUMN char_start INTEGER")
+    if "char_end" not in chunk_cols:
+        conn.execute("ALTER TABLE chunks ADD COLUMN char_end INTEGER")
+    conn.commit()
 
 
 def _pack(emb):
@@ -45,50 +62,88 @@ def _unpack(blob):
     return np.frombuffer(blob, dtype=np.float32)
 
 
-def _split_long(par: str) -> list[str]:
-    sentences = re.split(r"(?<=[.!?])\s+|\n", par)
-    out, cur = [], ""
-    for s in sentences:
-        if len(s) > CHUNK_CHARS:
-            if cur:
-                out.append(cur)
-                cur = ""
-            for i in range(0, len(s), CHUNK_CHARS):
-                out.append(s[i : i + CHUNK_CHARS])
-        elif cur and len(cur) + len(s) + 1 > CHUNK_CHARS:
-            out.append(cur)
-            cur = s
-        else:
-            cur = f"{cur} {s}".strip()
-    if cur:
-        out.append(cur)
-    return out
-
-
-def chunk_text(text: str):
+def chunk_text_meta(text: str, page: int | None = None) -> list[dict]:
     text = text.strip()
     if not text:
         return []
-    paras = [p.strip() for p in re.split(r"\n\s*\n", text) if p.strip()]
-    chunks, carry = [], ""
-    for p in paras:
-        pieces = _split_long(p) if len(p) > CHUNK_CHARS else [p]
-        for piece in pieces:
-            if carry and len(carry) + len(piece) + 1 > CHUNK_CHARS:
-                chunks.append(carry)
-                carry = carry[-OVERLAP_CHARS:] + "\n" + piece
-            elif not carry:
-                carry = piece
-            else:
-                carry = f"{carry}\n{piece}"
-    if carry:
-        chunks.append(carry)
-    return [c for c in chunks if c.strip()]
+    out = []
+    n = len(text)
+    start = 0
+    while start < n:
+        end = min(start + CHUNK_CHARS, n)
+        if end < n:
+            best = -1
+            for m in re.finditer(r"[.!?]\s|\n", text[start:end]):
+                best = m.end() - 1
+            if best >= CHUNK_CHARS // 2:
+                end = start + best + 1
+        piece = text[start:end].strip()
+        if piece:
+            out.append({"text": piece, "page": page, "char_start": start, "char_end": end})
+        if end >= n:
+            break
+        start = max(end - OVERLAP_CHARS, start + 1)
+    return out
 
 
-def add_document(filename: str, chunks: list[str], embeddings: np.ndarray):
+def chunk_text(text: str) -> list[str]:
+    return [c["text"] for c in chunk_text_meta(text)]
+
+
+def create_document(filename: str, sha256: str | None = None):
     conn = _conn()
-    cur = conn.execute("INSERT INTO documents (filename, n_chunks) VALUES (?, ?)", (filename, len(chunks)))
+    cur = conn.execute(
+        "INSERT INTO documents (filename, sha256, status, n_chunks) VALUES (?, ?, 'indexing', 0)",
+        (filename, sha256),
+    )
+    conn.commit()
+    conn.close()
+    return cur.lastrowid
+
+
+def fill_document(doc_id: int, chunks_meta: list[dict], embeddings: np.ndarray):
+    conn = _conn()
+    conn.executemany(
+        "INSERT INTO chunks (doc_id, idx, text, emb, page, char_start, char_end) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        [
+            (doc_id, i, c["text"], _pack(embeddings[i]), c.get("page"), c.get("char_start"), c.get("char_end"))
+            for i, c in enumerate(chunks_meta)
+        ],
+    )
+    conn.execute("UPDATE documents SET n_chunks = ?, status = 'ready' WHERE id = ?", (len(chunks_meta), doc_id))
+    conn.commit()
+    conn.close()
+
+
+def mark_document_error(doc_id: int):
+    conn = _conn()
+    conn.execute("UPDATE documents SET status = 'error' WHERE id = ?", (doc_id,))
+    conn.commit()
+    conn.close()
+
+
+def find_doc_by_sha(sha256: str):
+    if not sha256:
+        return None
+    conn = _conn()
+    row = conn.execute("SELECT id, filename FROM documents WHERE sha256 = ?", (sha256,)).fetchone()
+    conn.close()
+    return {"id": row[0], "filename": row[1]} if row else None
+
+
+def count_chunks():
+    conn = _conn()
+    n = conn.execute("SELECT COUNT(*) FROM chunks").fetchone()[0]
+    conn.close()
+    return n
+
+
+def add_document(filename: str, chunks: list[str], embeddings: np.ndarray, sha256: str | None = None):
+    conn = _conn()
+    cur = conn.execute(
+        "INSERT INTO documents (filename, sha256, status, n_chunks) VALUES (?, ?, 'ready', ?)",
+        (filename, sha256, len(chunks)),
+    )
     doc_id = cur.lastrowid
     conn.executemany(
         "INSERT INTO chunks (doc_id, idx, text, emb) VALUES (?, ?, ?, ?)",
@@ -101,10 +156,12 @@ def add_document(filename: str, chunks: list[str], embeddings: np.ndarray):
 
 def list_documents():
     conn = _conn()
-    rows = conn.execute("SELECT id, filename, created_at, n_chunks FROM documents ORDER BY id DESC").fetchall()
+    rows = conn.execute(
+        "SELECT id, filename, created_at, n_chunks, status FROM documents ORDER BY id DESC"
+    ).fetchall()
     total = conn.execute("SELECT COUNT(*) FROM chunks").fetchone()[0]
     conn.close()
-    docs = [{"id": r[0], "filename": r[1], "created_at": r[2], "n_chunks": r[3]} for r in rows]
+    docs = [{"id": r[0], "filename": r[1], "created_at": r[2], "n_chunks": r[3], "status": r[4]} for r in rows]
     return {"documents": docs, "n_chunks": total}
 
 
