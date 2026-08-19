@@ -32,7 +32,6 @@ import "wa/format-bytes/format-bytes.js";
 import "wa/scroller/scroller.js";
 import "wa/divider/divider.js";
 import "wa/toast/toast.js";
-import "wa/toast/toast-item.js";
 
 registerIconLibrary("default", {
   resolver: (name, family = "classic", variant = "solid") =>

@@ -38,7 +38,7 @@ styles.replaceSync(`
     height: var(--mc-chip-h);
     padding-inline: calc(var(--mc-space-gap) + 0.125rem);
     border: var(--wa-border-width-s) solid var(--mc-surface-border);
-    border-radius: var(--wa-border-radius-pill);
+    border-radius: var(--mc-radius);
     background: var(--mc-surface-raised);
     color: var(--mc-text);
     font-family: var(--mc-sans);

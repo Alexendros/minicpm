@@ -106,7 +106,7 @@ export class McShell extends HTMLElement {
     this._timers.push(setInterval(() => this._refreshGpu(), 5000));
     requestAnimationFrame(() => {
       const saved = sessionStorage.getItem('mcTab');
-      if (saved && this._tabs) this._tabs.activeTab = saved;
+      if (saved) this._activateTab(saved);
     });
   }
 
@@ -173,9 +173,17 @@ export class McShell extends HTMLElement {
   }
 
   _openServices(name) {
-    if (this._tabs) this._tabs.activeTab = 'svc';
+    this._activateTab('svc');
     if (name && this._servicesEl && typeof this._servicesEl.focusRow === 'function') {
       this._servicesEl.focusRow(name);
+    }
+  }
+
+  _activateTab(panel) {
+    if (!this._tabs) return;
+    const tab = this.shadowRoot.querySelector(`wa-tab[panel="${panel}"]`);
+    if (tab) {
+      tab.dispatchEvent(new MouseEvent('click', { bubbles: true, composed: true }));
     }
   }
 
