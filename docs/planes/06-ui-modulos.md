@@ -250,7 +250,7 @@ Los singletons `mc-toast` y `mc-confirm` se buscan una vez en `boot.js` y se pas
 | M2 | `grep -R "querySelector" js/modules` | solo `mc-shell`, `mc-toast`, `mc-confirm` |
 | M3 | Cambiar `--mc-radius` | se ve en chips, cards, dialogs; cero JS tocado |
 | M4 | Borrar `mc-gpu-meter.js` y poner un stub | el shell sigue montando; solo falta la barra |
-| M5 | `grep -RInE 'wa-page|ka-f.webawesome|#0f1115|#4f8cff' app/static` | vacío (hex viejos fuera) |
+| M5 | `grep -RInE 'wa-page\|ka-f.webawesome\|#0f1115\|#4f8cff' app/static` | vacío (hex viejos fuera) |
 | M6 | Cada `mc-*.js` | tiene `@module`, `observedAttributes` o API documentada, `define` |
 | M7 | `i18n.js` | contiene `gpu.warnLimit`, `chat.empty`, `mail.bridgeDown` |
 | M8 | Fichero de módulo | ≤ 250 líneas |

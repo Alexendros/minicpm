@@ -139,7 +139,7 @@ Dos botones en `wa-button-group`. No unificar.
 
 Si rag `stopped`: switch rerank off + hint “Reranker no disponible”.
 
-**Responder**
+### Responder
 
 ```text
 si modelo ≠ running → callout, stop
