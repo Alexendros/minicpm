@@ -61,15 +61,15 @@ export class McKb extends HTMLElement {
       </div>
       <span class="hint">${t('kb.uploadHint')}</span>
       <wa-tab-group class="tabs" part="tabs">
-        <wa-tab slot="nav" panel="search">${t('kb.search')}</wa-tab>
-        <wa-tab slot="nav" panel="answer">${t('kb.answer')}</wa-tab>
+        <wa-tab slot="nav" panel="search">${t('kb.query.search')}</wa-tab>
+        <wa-tab slot="nav" panel="answer">${t('kb.query.ask')}</wa-tab>
         <wa-tab-panel name="search">
-          <div class="query-row"><wa-input class="search-input" placeholder="${t('kb.searchPlaceholder')}"><wa-icon name="magnifying-glass" slot="prefix"></wa-icon></wa-input><wa-button class="btn-search" size="small">${t('kb.search')}</wa-button></div>
+          <div class="query-row"><wa-input class="search-input" placeholder="${t('kb.query.searchPlaceholder')}"><wa-icon name="magnifying-glass" slot="prefix"></wa-icon></wa-input><wa-button class="btn-search" size="small">${t('kb.query.search')}</wa-button></div>
           <div class="results search-results" part="results"></div>
         </wa-tab-panel>
         <wa-tab-panel name="answer">
-          <wa-textarea class="query" rows="3" placeholder="${t('kb.queryPlaceholder')}"></wa-textarea>
-          <div class="query-row"><wa-button class="btn-answer" size="small" variant="brand"><wa-icon name="paper-plane"></wa-icon>${t('kb.answer')}</wa-button></div>
+          <wa-textarea class="query" rows="3" placeholder="${t('kb.query.askPlaceholder')}"></wa-textarea>
+          <div class="query-row"><wa-button class="btn-answer" size="small" variant="brand"><wa-icon name="paper-plane"></wa-icon>${t('kb.query.ask')}</wa-button></div>
           <div class="results answer-results" part="results"></div>
         </wa-tab-panel>
       </wa-tab-group>
@@ -163,7 +163,7 @@ export class McKb extends HTMLElement {
     this._searchResults.replaceChildren();
     try {
       const hits = await api.kb.search(q, { top_k: 5, rerank: true });
-      if (!hits.length) { const p = document.createElement('p'); p.className = 'empty'; p.textContent = t('kb.noResults'); this._searchResults.append(p); return; }
+      if (!hits.length) { const p = document.createElement('p'); p.className = 'empty'; p.textContent = t('kb.query.noResults'); this._searchResults.append(p); return; }
       for (const hit of hits) {
         const card = document.createElement('mc-source-card');
         card.setAttribute('filename', hit.filename);
@@ -216,7 +216,7 @@ export class McKb extends HTMLElement {
                 body.replaceChildren();
                 const callout = document.createElement('wa-callout');
                 callout.variant = 'warning';
-                callout.textContent = t('kb.noContext');
+                callout.textContent = t('kb.query.noContext');
                 body.append(callout);
               } else if (!text && j.answer) {
                 text = j.answer;
