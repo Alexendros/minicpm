@@ -1,0 +1,67 @@
+/* @tokens MiniCPM Desktop · persona-a (precision) */
+/* Mapea valores de la identidad visual a tokens de Web Awesome Core MIT. */
+
+.mc-persona-a {
+  /* ---- Espacio ---- */
+  --mc-space-page: var(--wa-space-m);
+  --mc-space-gap: var(--wa-space-s);
+
+  /* ---- Geometría ---- */
+  --mc-radius: var(--wa-border-radius-l);
+  --mc-radius-s: var(--wa-border-radius-s);
+  --mc-radius-m: var(--wa-border-radius-m);
+
+  /* ---- Layout ---- */
+  --mc-header-h: 3.25rem;
+  --mc-composer-min-h: 5rem;
+  --mc-chip-h: 1.75rem;
+  --mc-split-mail: 36%;
+
+  /* ---- Indicadores ---- */
+  --mc-meter-warn: 0.85;
+
+  /* ---- Movimiento ---- */
+  --mc-motion: 120ms;
+  --mc-ease: var(--wa-transition-easing);
+
+  /* ---- Foco ---- */
+  --mc-focus: var(--wa-focus-ring);
+  --mc-focus-offset: var(--wa-focus-ring-offset);
+
+  /* ---- Tipografía ---- */
+  --mc-sans: var(--wa-font-family-body);
+  --mc-mono: var(--wa-font-family-code);
+
+  /* ---- Superficies ---- */
+  --mc-surface: var(--wa-color-surface-default);
+  --mc-surface-raised: var(--wa-color-surface-raised);
+  --mc-surface-border: var(--wa-color-surface-border);
+  --mc-text: var(--wa-color-text-normal);
+  --mc-text-quiet: var(--wa-color-text-quiet);
+
+  /* ---- Burbujas de chat ---- */
+  --mc-bubble-user: var(--wa-color-brand-fill-normal);
+  --mc-bubble-user-text: var(--wa-color-brand-on-normal);
+  --mc-bubble-assistant: var(--wa-color-surface-raised);
+  --mc-bubble-assistant-text: var(--wa-color-text-normal);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mc-persona-a {
+    --mc-motion: 0ms;
+  }
+  .mc-persona-a *,
+  .mc-persona-a *::before,
+  .mc-persona-a *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+@media (prefers-contrast: more) {
+  .mc-persona-a {
+    --mc-surface-border: var(--wa-color-text-quiet);
+  }
+}

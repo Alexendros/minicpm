@@ -1,0 +1,25 @@
+/* @layout MiniCPM Desktop · persona-a */
+/* Solo estructura global: cascarón mc-shell y skip-link. El resto vive en módulos. */
+
+mc-shell {
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+}
+
+.mc-skip-link {
+  position: absolute;
+  inset-block-start: var(--wa-space-xs);
+  inset-inline-start: var(--wa-space-s);
+  z-index: 1000;
+  padding: var(--wa-space-xs) var(--wa-space-s);
+  border-radius: var(--mc-radius-s);
+  background: var(--mc-surface-raised);
+  color: var(--mc-text);
+  transform: translateY(-200%);
+  transition: transform var(--mc-motion) var(--mc-ease);
+}
+
+.mc-skip-link:focus {
+  transform: none;
+}
